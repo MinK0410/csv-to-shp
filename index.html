@@ -757,7 +757,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="note">브이월드 <a href="https://www.vworld.kr/dtmk/dtmk_ntads_s001.do?searchKeyword=%ED%95%98%EC%B2%9C" target="_blank" rel="noopener">공간정보 다운로드</a>에서 받은 하천 경계 ZIP들을 추가하세요. ZIP 안에 하천 경계 SHP와 같은 폴더의 .prj 파일이 있어야 합니다. 자료는 이 브라우저에 저장되고, 거리 계산을 누를 때 사용합니다.</div>
 </details>
 <div class="card"><h2>3. 지도</h2><div id="map"></div>
-<div class="note">지도의 번호는 아래 결과 표의 # 번호와 같고, 표의 행을 누르면 해당 위치로 이동합니다. 기본 배경 지도는 OpenStreetMap이며, 브이월드 지도를 사용하려면 주소 조회 설정에서 인증키를 입력하세요.</div></div>
+<div class="note">지도의 번호는 아래 결과 표의 # 번호와 같고, 표의 행을 누르면 해당 위치로 이동합니다. 기본 배경 지도는 OpenStreetMap이며, 브이월드 지도를 사용하려면 주소 조회 설정에서 인증키를 입력하세요. 불러온 하천 경계는 지도 오른쪽 위 레이어 메뉴에서 켜고 끌 수 있습니다.</div>
+<div class="note" id="riverOverlayMsg">하천 ZIP을 불러오면 지도 레이어 메뉴에서 하천 경계를 표시할 수 있습니다.</div></div>
 <div class="card"><h2>4. 결과</h2>
 <div id="photoResultTable"><table id="ptab"><tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody></table></div>
 <div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button></div>
@@ -949,6 +950,39 @@ const lsGet=k=>{try{return localStorage.getItem(k)||''}catch{return ''}},lsSet=(
 function provChange(){const p=$('prov').value;$('key').value=lsGet('key_'+p);$('key').disabled=p==='osm';$('provNote').textContent=NOTE[p]}
 $('prov').onchange=provChange;$('key').oninput=()=>lsSet('key_'+$('prov').value,$('key').value.trim());provChange();
 let PR=[],busy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null;
+const RIVER_GRID_SIZE=10000,RIVER_DRAW_LIMIT=50000,RIVER_INDEX_SCAN_LIMIT=1000000;
+let riverGrid=new Map(),riverIndexPending=0,riverCacheLoadPromise=null,riverOverlay=null,riverDrawToken=0;
+function indexRiverSegment(s){
+ const ax=s.a[0],ay=s.a[1],dx=s.b[0]-ax,dy=s.b[1]-ay;
+ let gx=Math.floor(ax/RIVER_GRID_SIZE),gy=Math.floor(ay/RIVER_GRID_SIZE);
+ const endX=Math.floor(s.b[0]/RIVER_GRID_SIZE),endY=Math.floor(s.b[1]/RIVER_GRID_SIZE);
+ const stepX=Math.sign(dx),stepY=Math.sign(dy),deltaX=stepX?RIVER_GRID_SIZE/Math.abs(dx):Infinity,deltaY=stepY?RIVER_GRID_SIZE/Math.abs(dy):Infinity;
+ let maxX=stepX>0?((gx+1)*RIVER_GRID_SIZE-ax)/dx:stepX<0?(gx*RIVER_GRID_SIZE-ax)/dx:Infinity;
+ let maxY=stepY>0?((gy+1)*RIVER_GRID_SIZE-ay)/dy:stepY<0?(gy*RIVER_GRID_SIZE-ay)/dy:Infinity;
+ const maxSteps=Math.abs(endX-gx)+Math.abs(endY-gy)+1;
+ for(let i=0;i<=maxSteps;i++){
+  const key=gx+','+gy;let cell=riverGrid.get(key);
+  if(!cell)riverGrid.set(key,cell=[]);
+  cell.push(s);
+  if(gx===endX&&gy===endY)return;
+  if(maxX<maxY){gx+=stepX;maxX+=deltaX}
+  else if(maxY<maxX){gy+=stepY;maxY+=deltaY}
+  else{gx+=stepX;gy+=stepY;maxX+=deltaX;maxY+=deltaY}
+ }
+}
+async function indexRiverSegments(segments){
+ if(!segments.length)return;
+ riverIndexPending++;
+ try{
+  for(let i=0;i<segments.length;i++){
+   indexRiverSegment(segments[i]);
+   if(i&&i%20000===0)await new Promise(resolve=>setTimeout(resolve,0));
+  }
+ }finally{
+  riverIndexPending--;
+  if(riverOverlay)riverOverlay.redraw();
+ }
+}
 function openRiverDb(){
  if(!window.indexedDB)return Promise.reject(new Error('이 브라우저에서 IndexedDB를 사용할 수 없습니다.'));
  if(!riverDbPromise)riverDbPromise=new Promise((resolve,reject)=>{
@@ -1056,6 +1090,7 @@ async function importRiverFiles(files){
  for(const file of files){
   try{
    const parsed=await parseRiverArchive(file);
+   await indexRiverSegments(parsed);
    riverSegments=riverSegments.concat(parsed);
    totalSegments+=parsed.length;imported++;
    try{riverLoadedIds.add(await riverDbRequest('readwrite',store=>store.add({name:file.name,size:file.size,lastModified:file.lastModified,blob:file.slice(0,file.size,file.type)})))}
@@ -1070,16 +1105,21 @@ async function importRiverFiles(files){
  }else $('rMsg').innerHTML='<span class="err">'+esc(errors.join(' / ')||'하천 데이터를 불러오지 못했습니다.')+'</span>';
  render();
 }
-async function loadCachedRiverFiles(){
- const records=await riverDbRequest('readonly',store=>store.getAll()),errors=[];let loaded=0;
- for(const record of records){
-  if(riverLoadedIds.has(record.id))continue;
-  try{
-   const parsed=await parseRiverArchive(record.blob);
-   riverSegments=riverSegments.concat(parsed);riverLoadedIds.add(record.id);loaded++;
-  }catch(e){errors.push(`${record.name}: ${e.message||e}`)}
- }
- return{loaded,errors};
+function loadCachedRiverFiles(){
+ if(riverCacheLoadPromise)return riverCacheLoadPromise;
+ riverCacheLoadPromise=(async()=>{
+  const records=await riverDbRequest('readonly',store=>store.getAll()),errors=[];let loaded=0;
+  for(const record of records){
+   if(riverLoadedIds.has(record.id))continue;
+   try{
+    const parsed=await parseRiverArchive(record.blob);
+    await indexRiverSegments(parsed);
+    riverSegments=riverSegments.concat(parsed);riverLoadedIds.add(record.id);loaded++;
+   }catch(e){errors.push(`${record.name}: ${e.message||e}`)}
+  }
+  return{loaded,errors};
+ })();
+ return riverCacheLoadPromise.finally(()=>{riverCacheLoadPromise=null});
 }
 async function calculateRiverDistances(){
  if(riverBusy)return;
@@ -1101,9 +1141,9 @@ async function clearRiverFiles(){
  if(!confirm('이 브라우저에 저장된 하천 ZIP 자료를 모두 삭제할까요?'))return;
  try{
   await riverDbRequest('readwrite',store=>store.clear());
-  riverCacheCount=0;riverSegments=[];riverLoadedIds.clear();
+  riverCacheCount=0;riverSegments=[];riverGrid.clear();riverLoadedIds.clear();
   PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
-  $('rMsg').textContent='저장된 하천 자료를 삭제했습니다.';render();
+  $('rMsg').textContent='저장된 하천 자료를 삭제했습니다.';if(riverOverlay)riverOverlay.redraw();render();
  }catch(e){$('rMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
 }
 const rd=$('rDrop');
@@ -1115,7 +1155,7 @@ $('rClear').onclick=clearRiverFiles;
 $('priver').onclick=calculateRiverDistances;
 refreshRiverCacheStatus();
 async function readPhotos(files){
- PR=[];$('pMsg').textContent='사진 정보를 읽는 중…';
+ const added=[];$('pMsg').textContent='사진 정보를 읽는 중…';
  for(const f of files){
   const r={name:f.name,lat:null,lon:null,alt:'',date:'',jibun:'',road:'',st:''};
   try{const g=await exifr.gps(f);
@@ -1124,12 +1164,12 @@ async function readPhotos(files){
     if(m.GPSAltitude!=null)r.alt=(+m.GPSAltitude).toFixed(1);
     if(m.DateTimeOriginal)r.date=m.DateTimeOriginal instanceof Date?m.DateTimeOriginal.toLocaleString('ko-KR'):String(m.DateTimeOriginal)}
    else r.st='GPS 정보 없음'}catch(e){r.st='읽기 실패'}
-  PR.push(r)}
- const n=PR.filter(r=>r.lat!=null).length;
- $('pMsg').textContent=`사진 ${PR.length}장 중 ${n}장에서 좌표를 찾았습니다.`+(n<PR.length?' 메신저·SNS로 받은 사진은 위치 정보가 지워지는 경우가 많습니다.':'');
+  PR.push(r);added.push(r)}
+ const located=PR.filter(r=>r.lat!=null).length,addedLocated=added.filter(r=>r.lat!=null);
+ $('pMsg').textContent=`${files.length}장 추가 · 전체 ${PR.length}장 중 ${located}장에서 좌표를 찾았습니다.`+(located<PR.length?' 메신저·SNS로 받은 사진은 위치 정보가 지워지는 경우가 많습니다.':'');
  FIT=true;render();
- if(n&&($('prov').value==='osm'||$('key').value.trim()))geocodeAll();
- else if(n)$('pMsg').textContent+=' 지번 조회는 API 키를 입력한 뒤 ‘주소 조회’를 눌러 주세요.';
+ if(addedLocated.length&&($('prov').value==='osm'||$('key').value.trim()))geocodeAll(addedLocated);
+ else if(addedLocated.length)$('pMsg').textContent+=' 지번 조회는 API 키를 입력한 뒤 ‘주소 조회’를 눌러 주세요.';
 }
 function render(){
  const id=$('pdst').value,dec=id==='4326'?7:3,fx=id==='4326'?null:proj4('EPSG:4326','EPSG:'+id);
@@ -1169,15 +1209,15 @@ async function geo(r,p,key){
   const [a,b]=await Promise.all([q('PARCEL'),q('ROAD')]);return{jibun:a,road:b,err:a?'':'주소 없음'}}
  const d=await(await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&zoom=18&lat=${r.lat}&lon=${r.lon}`)).json();
  await sleep(1100);return{jibun:'(지번 미제공)',road:d.display_name||'',err:d.display_name?'':'주소 없음'}}
-async function geocodeAll(){
+async function geocodeAll(rows=PR.filter(r=>r.lat!=null&&!r.jibun&&!r.road)){
  if(busy)return;const p=$('prov').value,key=$('key').value.trim();
  if(p!=='osm'&&!key){$('pMsg').innerHTML='<span class="warn">API 키를 입력해 주세요.</span>';return}
- busy=true;$('pgeo').disabled=true;const L=PR.filter(r=>r.lat!=null);let i=0;
- try{for(const r of L){$('pMsg').textContent=`주소 조회 중… ${++i}/${L.length}`;const a=await geo(r,p,key);r.jibun=a.jibun;r.road=a.road;r.st=a.err||'';render()}
-  $('pMsg').textContent=`주소 조회 완료 (${L.length}건)`}
+ busy=true;$('pgeo').disabled=true;const L=rows.filter(r=>r.lat!=null);let i=0;
+ try{for(const r of L){$('pMsg').textContent=`주소 조회 중… ${++i}/${L.length}건 · 전체 ${PR.length}장`;const a=await geo(r,p,key);r.jibun=a.jibun;r.road=a.road;r.st=a.err||'';render()}
+  $('pMsg').textContent=`주소 조회 완료 (${L.length}건 처리 · 전체 ${PR.length}장)`}
  catch(e){$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
  busy=false;render()}
-$('pgeo').onclick=geocodeAll;
+$('pgeo').onclick=()=>geocodeAll();
 const pd=$('pdrop');
 pd.onclick=()=>$('pfile').click();
 $('pfile').onchange=e=>e.target.files.length&&readPhotos([...e.target.files]);
@@ -1198,15 +1238,83 @@ $('pshp').onclick=async()=>{
 
 /* ===== 지도 ===== */
 let MAP=null,LAYER=null,CTRL=null,BASES={},OVER={},M=[],FIT=false;
+riverOverlay=new (L.Layer.extend({
+ onAdd:function(map){
+  this._map=map;this._canvas=L.DomUtil.create('canvas','river-boundary-overlay');
+  this._canvas.style.pointerEvents='none';map.getPanes().overlayPane.appendChild(this._canvas);
+  map.on('moveend zoomend resize',this.redraw,this);this.redraw();
+  if(!riverSegments.length)loadCachedRiverFiles().then(({loaded,errors})=>{
+   if(loaded)$('riverOverlayMsg').textContent=`저장된 하천 ZIP ${loaded}개를 불러왔습니다.`;
+   else if(errors.length)$('riverOverlayMsg').textContent='하천 자료를 불러오지 못했습니다: '+errors.join(' / ');
+   this.redraw();
+  }).catch(e=>{$('riverOverlayMsg').textContent='저장된 하천 자료를 불러오지 못했습니다: '+(e.message||e)});
+ },
+ onRemove:function(map){
+  map.off('moveend zoomend resize',this.redraw,this);
+  if(this._frame)cancelAnimationFrame(this._frame);
+  if(this._canvas)L.DomUtil.remove(this._canvas);
+  this._canvas=null;this._map=null;this._frame=null;
+ },
+ redraw:function(){
+  if(!this._map||this._frame)return;
+  this._frame=requestAnimationFrame(()=>{this._frame=null;this._draw()});
+ },
+ _draw:function(){
+  if(!this._map||!this._canvas)return;
+  const map=this._map,size=map.getSize(),ratio=Math.min(window.devicePixelRatio||1,2),canvas=this._canvas;
+  canvas.width=Math.max(1,Math.round(size.x*ratio));canvas.height=Math.max(1,Math.round(size.y*ratio));
+  canvas.style.width=size.x+'px';canvas.style.height=size.y+'px';
+  L.DomUtil.setPosition(canvas,map.containerPointToLayerPoint([0,0]));
+  const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,size.x,size.y);
+  const msg=$('riverOverlayMsg');
+  if(!riverSegments.length){msg.textContent=riverCacheCount?'하천 자료를 불러오는 중…':'하천 ZIP을 불러오면 지도 레이어 메뉴에서 표시할 수 있습니다.';return}
+  if(riverIndexPending){msg.textContent='하천 경계 표시를 준비하는 중…';return}
+  if(map.getZoom()<6){msg.textContent='하천 경계를 보려면 지도를 조금 더 확대하세요.';return}
+  if(!riverGrid.size){msg.textContent='하천 경계 공간 인덱스를 준비하지 못했습니다.';return}
+  const toMetric=proj4('EPSG:4326','EPSG:5179'),toGeo=proj4('EPSG:5179','EPSG:4326'),bounds=map.getBounds();
+  const corners=[[bounds.getWest(),bounds.getSouth()],[bounds.getWest(),bounds.getNorth()],[bounds.getEast(),bounds.getSouth()],[bounds.getEast(),bounds.getNorth()]].map(p=>toMetric.forward(p));
+  const minX=Math.min(...corners.map(p=>p[0])),maxX=Math.max(...corners.map(p=>p[0])),minY=Math.min(...corners.map(p=>p[1])),maxY=Math.max(...corners.map(p=>p[1]));
+  const minGX=Math.floor(minX/RIVER_GRID_SIZE)-1,maxGX=Math.floor(maxX/RIVER_GRID_SIZE)+1,minGY=Math.floor(minY/RIVER_GRID_SIZE)-1,maxGY=Math.floor(maxY/RIVER_GRID_SIZE)+1;
+  const cellCount=(maxGX-minGX+1)*(maxGY-minGY+1);
+  if(cellCount>2500){msg.textContent='표시 범위가 넓습니다. 지도를 확대해 하천 경계를 확인하세요.';return}
+  const cells=[];let references=0;
+  for(let gx=minGX;gx<=maxGX;gx++)for(let gy=minGY;gy<=maxGY;gy++){
+   const bucket=riverGrid.get(gx+','+gy);
+   if(bucket){cells.push({gx,gy,bucket});references+=bucket.length}
+   if(references>RIVER_INDEX_SCAN_LIMIT){msg.textContent='표시할 하천이 많습니다. 지도를 확대해 범위를 좁혀 주세요.';return}
+  }
+  const countToken=++riverDrawToken;let total=0;
+  for(const {bucket} of cells)for(const s of bucket)if(s._riverDrawToken!==countToken){s._riverDrawToken=countToken;total++}
+  if(!total){msg.textContent='현재 지도 범위에 표시할 하천 경계가 없습니다.';return}
+  const target=Math.min(total,RIVER_DRAW_LIMIT),drawToken=++riverDrawToken;let rank=0,drawn=0;ctx.beginPath();
+  for(const {bucket} of cells)for(const s of bucket){
+   if(s._riverDrawToken===drawToken)continue;
+   s._riverDrawToken=drawToken;
+   if(Math.floor(rank*target/total)!==Math.floor((rank+1)*target/total)){
+    const a=toGeo.forward(s.a),b=toGeo.forward(s.b);
+    const p=map.latLngToContainerPoint([a[1],a[0]]),q=map.latLngToContainerPoint([b[1],b[0]]);
+    ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);drawn++;
+   }
+   rank++;
+  }
+  ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=4;ctx.stroke();
+  ctx.strokeStyle='#087ea4';ctx.lineWidth=2;ctx.stroke();
+  msg.textContent=total>RIVER_DRAW_LIMIT?`하천 경계 ${total.toLocaleString()}개 중 ${drawn.toLocaleString()}개를 간략히 표시 중입니다. 더 확대하면 상세하게 볼 수 있습니다.`:`하천 경계 ${drawn.toLocaleString()}개 표시 중`;
+ }
+}))();
 function setBase(){
  if(!MAP)return;
+ const riverVisible=!!riverOverlay&&MAP.hasLayer(riverOverlay);
  [...Object.values(BASES),...Object.values(OVER)].forEach(l=>MAP.removeLayer(l));if(CTRL)MAP.removeControl(CTRL);
  BASES={'OpenStreetMap':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'})};OVER={};
  const k=lsGet('key_vworld'),v=(t,e)=>`https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(k)}/${t}/{z}/{y}/{x}.${e}`;
  if(k){BASES['브이월드 일반']=L.tileLayer(v('Base','png'),{maxZoom:19,attribution:'© VWorld'});
   BASES['브이월드 위성']=L.tileLayer(v('Satellite','jpeg'),{maxZoom:19,attribution:'© VWorld'});
   OVER['브이월드 지명 (위성용)']=L.tileLayer(v('Hybrid','png'),{maxZoom:19})}
- (BASES['브이월드 위성']||BASES.OpenStreetMap).addTo(MAP);CTRL=L.control.layers(BASES,OVER).addTo(MAP)}
+ OVER['하천 경계']=riverOverlay;
+ (BASES['브이월드 위성']||BASES.OpenStreetMap).addTo(MAP);
+ if(riverVisible)riverOverlay.addTo(MAP);
+ CTRL=L.control.layers(BASES,OVER).addTo(MAP)}
 function initMap(){if(MAP)return;MAP=L.map('map').setView([36.5,127.8],7);LAYER=L.layerGroup().addTo(MAP);setBase()}
 function drawMap(){
  initMap();LAYER.clearLayers();M=[];
