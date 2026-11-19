@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>CSV → SHP 변환기 · 사진 좌표 추출</title>
+<title>사진 좌표 · 지도</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mu:#5b6570;--bd:#d8dde3;--ac:#1f6feb;--ac2:#fff;--wa:#9a6700;--er:#cf222e;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
@@ -27,9 +27,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .msg{font-size:13px;margin-top:8px;color:var(--mu)}.warn{color:var(--wa)}.err{color:var(--er)}
 .tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}
 th,td{border-bottom:1px solid var(--bd);padding:5px 8px;text-align:left;white-space:nowrap}th{color:var(--mu)}
-.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{width:auto;flex:1;background:var(--card);color:var(--tx);border:1px solid var(--bd)}
-.tabs button.on{background:var(--ac);color:var(--ac2);border-color:var(--ac)}.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}@media(max-width:560px){.g3{grid-template-columns:1fr}}
+[hidden]{display:none!important}.tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{width:auto;flex:1;background:var(--card);color:var(--tx);border:1px solid var(--bd)}
+.tabs button.on{background:var(--ac);color:var(--ac2);border-color:var(--ac)}.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:560px){.g3,.g4{grid-template-columns:1fr}}
 .note{font-size:12px;color:var(--mu);margin-top:8px}
+details.card summary{cursor:pointer;color:var(--mu);font-size:14px;font-weight:600}
+#photoResultTable{height:360px;overflow:auto}
+#photoResultTable thead th{position:sticky;top:0;background:var(--card);z-index:1}
+#ptab{min-width:1000px}
+.photo-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.photo-actions.has-address-action{grid-template-columns:repeat(4,1fr)}
+@media(max-width:560px){.photo-actions,.photo-actions.has-address-action{grid-template-columns:1fr}}
 </style>
 <style>/* Leaflet 1.9.4 (BSD-2-Clause) */
 /* required styles */
@@ -701,11 +708,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </head>
 <body>
 <main>
-<h1>CSV → SHP 변환기 · 사진 좌표 추출</h1>
-<p class="sub">경위도(X, Y) 컬럼이 있는 CSV를 Shapefile(점)로 변환합니다. 모든 처리는 브라우저 안에서만 이루어집니다.</p>
+<h1>CSV 변환 · 사진 좌표</h1>
+<p class="sub">CSV 좌표 변환과 사진 위치 확인을 한 페이지에서 사용할 수 있습니다.</p>
 
-<div class="tabs"><button class="on" data-t="csv">CSV → SHP</button><button data-t="photo">사진 좌표 · 지번 조회</button></div>
-<div id="secCsv">
+<div class="tabs"><button data-t="csv">CSV → SHP</button><button class="on" data-t="photo">사진 좌표 · 지번 조회</button></div>
+<div id="secCsv" hidden>
 <div class="card"><h2>1. CSV 불러오기</h2>
 <div id="drop">CSV 파일을 끌어다 놓거나 클릭해서 선택<input id="file" type="file" accept=".csv,.txt,.tsv" hidden></div>
 <textarea id="paste" placeholder="또는 CSV 내용을 여기에 붙여넣기 (첫 줄은 헤더)"></textarea>
@@ -732,22 +739,29 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="msg" id="goMsg"></div>
 <div class="note">ZIP에는 .shp · .shx · .dbf · .prj · .cpg 파일이 들어 있습니다. 좌표 소수점은 그대로 유지되며, 숫자만 있는 컬럼은 숫자 필드로 저장됩니다.</div></div>
 </div>
-<div id="secPhoto" hidden>
+<div id="secPhoto">
 <div class="card"><h2>1. 사진 불러오기</h2>
 <div id="pdrop">사진을 끌어다 놓거나 클릭해서 선택 (여러 장 가능 · JPG, HEIC, PNG, TIFF)<input id="pfile" type="file" accept="image/*,.heic,.heif" multiple hidden></div>
 <div class="msg" id="pMsg"></div>
 <div class="note">사진 파일은 서버로 올라가지 않고 브라우저에서만 읽습니다. 지번 조회를 쓰면 좌표 값만 선택한 주소 서비스로 전송됩니다.</div></div>
 <div class="card"><h2>2. 주소(지번) 조회 설정</h2>
-<div class="g"><div><label>주소 서비스</label><select id="prov"><option value="kakao">카카오 (JavaScript 키)</option><option value="vworld">브이월드 (인증키)</option><option value="osm">OpenStreetMap (키 불필요 · 지번 미제공)</option></select></div>
+<div class="g"><div><label>주소 서비스</label><select id="prov"><option value="kakao">카카오 (JavaScript 키)</option><option value="vworld" selected>브이월드 (인증키)</option><option value="osm">OpenStreetMap (키 불필요 · 지번 미제공)</option></select></div>
 <div><label>API 키</label><input type="text" id="key" placeholder="발급받은 키" autocomplete="off"></div>
 <div><label>X, Y 출력 좌표계</label><select id="pdst"></select></div></div>
 <div class="note" id="provNote"></div></div>
+<details class="card">
+<summary>하천 경계 ZIP 자료 추가 / 관리</summary>
+<div id="rDrop" style="margin-top:10px">소하천구역도·지방하천도·국가하천도 ZIP 선택 (여러 개 가능)<input id="rfile" type="file" accept=".zip,application/zip" multiple hidden></div>
+<div class="msg" id="rMsg"></div>
+<div class="r" style="margin-top:8px"><button id="rClear" type="button" disabled>저장된 하천 자료 삭제</button></div>
+<div class="note">브이월드 <a href="https://www.vworld.kr/dtmk/dtmk_ntads_s001.do?searchKeyword=%ED%95%98%EC%B2%9C" target="_blank" rel="noopener">공간정보 다운로드</a>에서 받은 하천 경계 ZIP들을 추가하세요. ZIP 안에 하천 경계 SHP와 같은 폴더의 .prj 파일이 있어야 합니다. 자료는 이 브라우저에 저장되고, 거리 계산을 누를 때 사용합니다.</div>
+</details>
 <div class="card"><h2>3. 지도</h2><div id="map"></div>
-<div class="note">지도의 번호는 아래 결과 표의 # 번호와 같고, 표의 행을 누르면 해당 위치로 이동합니다. 배경 지도는 인터넷 연결이 필요합니다. 기본은 OpenStreetMap이며, 주소 서비스에서 브이월드 키를 입력하면 브이월드 일반·위성 지도도 고를 수 있습니다.</div></div>
+<div class="note">지도의 번호는 아래 결과 표의 # 번호와 같고, 표의 행을 누르면 해당 위치로 이동합니다. 기본 배경 지도는 OpenStreetMap이며, 브이월드 지도를 사용하려면 주소 조회 설정에서 인증키를 입력하세요.</div></div>
 <div class="card"><h2>4. 결과</h2>
-<div class="tw"><table id="ptab"><tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody></table></div>
-<div class="g3" style="margin-top:12px"><button id="pgeo" disabled>주소 조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button></div>
-<div class="note">SHP의 속성 컬럼명은 10자 제한 때문에 영문(name, lat, lon, x, y, alt, date, jibun, road)으로 저장되며, 인코딩은 CSV 탭에서 선택한 값을 따릅니다.</div></div>
+<div id="photoResultTable"><table id="ptab"><tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody></table></div>
+<div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button></div>
+</div>
 </div>
 </main>
 
@@ -934,7 +948,172 @@ const NOTE={kakao:'카카오 디벨로퍼스(developers.kakao.com)에서 앱을 
 const lsGet=k=>{try{return localStorage.getItem(k)||''}catch{return ''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 function provChange(){const p=$('prov').value;$('key').value=lsGet('key_'+p);$('key').disabled=p==='osm';$('provNote').textContent=NOTE[p]}
 $('prov').onchange=provChange;$('key').oninput=()=>lsSet('key_'+$('prov').value,$('key').value.trim());provChange();
-let PR=[],busy=false;
+let PR=[],busy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null;
+function openRiverDb(){
+ if(!window.indexedDB)return Promise.reject(new Error('이 브라우저에서 IndexedDB를 사용할 수 없습니다.'));
+ if(!riverDbPromise)riverDbPromise=new Promise((resolve,reject)=>{
+  const req=indexedDB.open('photo-river-distance',1);
+  req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('datasets'))req.result.createObjectStore('datasets',{keyPath:'id',autoIncrement:true})};
+  req.onsuccess=()=>resolve(req.result);
+  req.onerror=()=>{riverDbPromise=null;reject(new Error('브라우저에 하천 자료 저장소를 열지 못했습니다: '+(req.error&&req.error.message||'알 수 없는 오류')))};
+  req.onblocked=()=>{riverDbPromise=null;reject(new Error('다른 탭에서 하천 자료 저장소를 사용 중입니다. 해당 탭을 닫고 다시 시도하세요.'))};
+ });
+ return riverDbPromise;
+}
+function riverDbRequest(mode,makeRequest){
+ return openRiverDb().then(db=>new Promise((resolve,reject)=>{
+  const tx=db.transaction('datasets',mode);let result;
+  const req=makeRequest(tx.objectStore('datasets'));
+  req.onsuccess=()=>{result=req.result};
+  req.onerror=()=>reject(new Error('브라우저 하천 자료 저장에 실패했습니다: '+(req.error&&req.error.message||'알 수 없는 오류')));
+  tx.oncomplete=()=>resolve(result);
+  tx.onabort=()=>reject(new Error('브라우저 하천 자료 저장이 취소되었습니다: '+(tx.error&&tx.error.message||'알 수 없는 오류')));
+  tx.onerror=()=>reject(new Error('브라우저 하천 자료 저장 중 오류가 발생했습니다: '+(tx.error&&tx.error.message||'알 수 없는 오류')));
+ }));
+}
+async function refreshRiverCacheStatus(){
+ try{
+  riverCacheCount=await riverDbRequest('readonly',store=>store.count());
+  $('rMsg').textContent=riverCacheCount?`이 브라우저에 저장된 하천 ZIP ${riverCacheCount}개. 사진을 불러온 뒤 ‘하천 거리 계산’을 누르면 사용합니다.`:'저장된 하천 ZIP이 없습니다.';
+ }catch(e){$('rMsg').innerHTML='<span class="warn">영구 저장소를 확인하지 못했습니다. '+esc(e.message||e)+'</span>'}
+ updatePhotoActions();
+}
+async function parseRiverArchive(blob){
+ const zip=await JSZip.loadAsync(blob),shps=Object.values(zip.files).filter(f=>!f.dir&&/\.shp$/i.test(f.name));
+ const matching=shps.filter(f=>/(?:하천경계|소하천(?:구역)?|지방하천|국가하천|small.?stream.*(?:boundary|area)|river.*boundary)/i.test(f.name));
+ const candidates=matching.length?matching:(shps.length===1?shps:[]);
+ if(!candidates.length)throw new Error(shps.length?'ZIP 안에서 소하천구역·지방하천·국가하천 경계 SHP를 하나로 정할 수 없습니다. 해당 경계 SHP ZIP을 각각 선택하세요.':'ZIP 안에서 SHP 파일을 찾지 못했습니다.');
+ const segments=[];
+ for(const shp of candidates){
+  const base=shp.name.replace(/\.shp$/i,''),prj=Object.values(zip.files).find(f=>!f.dir&&f.name.toLowerCase()===(`${base}.prj`).toLowerCase());
+  if(!prj)throw new Error(`${shp.name}: 같은 폴더에 좌표계 .prj 파일이 필요합니다.`);
+  const wkt=await prj.async('text'),toMetric=proj4(wkt,'EPSG:5179');
+  const parsed=parseRiverShp(await shp.async('arraybuffer'),toMetric);
+  for(const segment of parsed)segments.push(segment);
+ }
+ return segments;
+}
+function parseRiverShp(buffer,toMetric){
+ const v=new DataView(buffer);
+ if(v.byteLength<100)throw new Error('SHP 파일 헤더가 올바르지 않습니다.');
+ const headerType=v.getInt32(32,true),supported=[3,5,13,15,23,25];
+ if(!supported.includes(headerType))throw new Error('하천 경계 SHP는 PolyLine 또는 Polygon 형식이어야 합니다.');
+ const segs=[];
+ for(let offset=100;offset+8<=v.byteLength;){
+  const end=offset+8+v.getInt32(offset+4,false)*2;
+  if(end>v.byteLength||end<offset+12)throw new Error('SHP 파일의 레코드 길이가 올바르지 않습니다.');
+  const content=offset+8,type=v.getInt32(content,true);
+  if(type!==0){
+   if(!supported.includes(type))throw new Error('지원하지 않는 하천 경계 도형 형식입니다.');
+   if(content+44>end)throw new Error('SHP 도형 레코드가 잘렸습니다.');
+   const parts=v.getInt32(content+36,true),points=v.getInt32(content+40,true),partsAt=content+44;
+   if(parts<1||points<2||partsAt+parts*4+points*16>end)throw new Error('SHP 도형의 좌표 개수가 올바르지 않습니다.');
+   const starts=[];
+   for(let i=0;i<parts;i++)starts.push(v.getInt32(partsAt+i*4,true));
+   starts.push(points);
+   const pointsAt=partsAt+parts*4;
+   for(let part=0;part<parts;part++){
+    const line=[];
+    for(let i=starts[part];i<starts[part+1];i++){
+     const x=v.getFloat64(pointsAt+i*16,true),y=v.getFloat64(pointsAt+i*16+8,true);
+     const p=toMetric.forward([x,y]);
+     if(!Number.isFinite(p[0])||!Number.isFinite(p[1]))throw new Error('하천 경계 좌표를 EPSG:5179로 변환하지 못했습니다.');
+     line.push(p);
+    }
+    if(type===5||type===15||type===25){
+     const first=line[0],last=line[line.length-1];
+     if(first[0]!==last[0]||first[1]!==last[1])line.push(first);
+    }
+    for(let i=1;i<line.length;i++)segs.push({a:line[i-1],b:line[i]});
+   }
+  }
+  offset=end;
+ }
+ if(!segs.length)throw new Error('ZIP에서 하천 경계 좌표를 찾지 못했습니다.');
+ return segs;
+}
+function measureRiverDistances(){
+ if(!riverSegments.length){PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});return}
+ const toMetric=proj4('EPSG:4326','EPSG:5179'),toGeo=proj4('EPSG:5179','EPSG:4326');
+ for(const r of PR){
+  if(r.lat==null)continue;
+  const p=toMetric.forward([r.lon,r.lat]);let best=Infinity,nearest=null;
+  for(const s of riverSegments){
+   const ax=s.a[0],ay=s.a[1],dx=s.b[0]-ax,dy=s.b[1]-ay;
+   if(p[0]<Math.min(ax,s.b[0])-Math.sqrt(best)||p[0]>Math.max(ax,s.b[0])+Math.sqrt(best)||
+      p[1]<Math.min(ay,s.b[1])-Math.sqrt(best)||p[1]>Math.max(ay,s.b[1])+Math.sqrt(best))continue;
+   const length=dx*dx+dy*dy,t=length?Math.max(0,Math.min(1,((p[0]-ax)*dx+(p[1]-ay)*dy)/length)):0;
+   const x=ax+t*dx,y=ay+t*dy,d=(p[0]-x)*(p[0]-x)+(p[1]-y)*(p[1]-y);
+   if(d<best){best=d;nearest=[x,y]}
+  }
+  if(nearest){r.riverDistance=Math.sqrt(best);r.riverNearest=toGeo.forward(nearest)}
+ }
+}
+async function importRiverFiles(files){
+ if(riverBusy)return;
+ const errors=[];let imported=0,totalSegments=0;
+ $('rMsg').className='msg';$('rMsg').textContent=`하천 ZIP ${files.length}개를 확인하고 브라우저에 저장하는 중…`;
+ for(const file of files){
+  try{
+   const parsed=await parseRiverArchive(file);
+   riverSegments=riverSegments.concat(parsed);
+   totalSegments+=parsed.length;imported++;
+   try{riverLoadedIds.add(await riverDbRequest('readwrite',store=>store.add({name:file.name,size:file.size,lastModified:file.lastModified,blob:file.slice(0,file.size,file.type)})))}
+   catch(e){errors.push(`${file.name}: ${e.message||e} 이 파일은 현재 탭에서만 사용할 수 있습니다.`)}
+  }catch(e){errors.push(`${file.name}: ${e.message||e}`)}
+ }
+ try{riverCacheCount=await riverDbRequest('readonly',store=>store.count())}
+ catch(e){errors.push(e.message||String(e))}
+ PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
+ if(imported){
+  $('rMsg').textContent=`하천 ZIP ${imported}개에서 ${totalSegments.toLocaleString()}개 선분을 준비했습니다. 사진을 불러온 뒤 ‘하천 거리 계산’을 누르세요.`+(errors.length?' '+errors.join(' / '):'');
+ }else $('rMsg').innerHTML='<span class="err">'+esc(errors.join(' / ')||'하천 데이터를 불러오지 못했습니다.')+'</span>';
+ render();
+}
+async function loadCachedRiverFiles(){
+ const records=await riverDbRequest('readonly',store=>store.getAll()),errors=[];let loaded=0;
+ for(const record of records){
+  if(riverLoadedIds.has(record.id))continue;
+  try{
+   const parsed=await parseRiverArchive(record.blob);
+   riverSegments=riverSegments.concat(parsed);riverLoadedIds.add(record.id);loaded++;
+  }catch(e){errors.push(`${record.name}: ${e.message||e}`)}
+ }
+ return{loaded,errors};
+}
+async function calculateRiverDistances(){
+ if(riverBusy)return;
+ if(!PR.some(r=>r.lat!=null))return;
+ riverBusy=true;$('rMsg').className='msg';$('rMsg').textContent='저장된 하천 자료를 확인하는 중…';updatePhotoActions();
+ try{
+  let errors=[];
+  if(!riverSegments.length){const loaded=await loadCachedRiverFiles();errors=loaded.errors}
+  if(!riverSegments.length)throw new Error(errors.length?errors.join(' / '):'사용할 수 있는 하천 경계 데이터가 없습니다.');
+  $('rMsg').textContent=`하천 ${riverSegments.length.toLocaleString()}개 선분과 사진 좌표를 비교하는 중…`;
+  await new Promise(resolve=>requestAnimationFrame(resolve));
+  measureRiverDistances();render();
+  const measured=PR.filter(r=>r.lat!=null&&Number.isFinite(r.riverDistance)).length;
+  $('rMsg').textContent=`하천 경계 거리 계산 완료: ${measured}건`+(errors.length?' (읽지 못한 자료: '+errors.join(' / ')+')':'');
+ }catch(e){$('rMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
+ finally{riverBusy=false;updatePhotoActions()}
+}
+async function clearRiverFiles(){
+ if(!confirm('이 브라우저에 저장된 하천 ZIP 자료를 모두 삭제할까요?'))return;
+ try{
+  await riverDbRequest('readwrite',store=>store.clear());
+  riverCacheCount=0;riverSegments=[];riverLoadedIds.clear();
+  PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
+  $('rMsg').textContent='저장된 하천 자료를 삭제했습니다.';render();
+ }catch(e){$('rMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
+}
+const rd=$('rDrop');
+rd.onclick=()=>$('rfile').click();
+$('rfile').onchange=e=>{const files=[...e.target.files];if(files.length)importRiverFiles(files);e.target.value=''};
+rd.ondragover=e=>{e.preventDefault();rd.classList.add('on')};rd.ondragleave=()=>rd.classList.remove('on');
+rd.ondrop=e=>{e.preventDefault();rd.classList.remove('on');const files=[...e.dataTransfer.files].filter(x=>/\.zip$/i.test(x.name));if(files.length)importRiverFiles(files)};
+$('rClear').onclick=clearRiverFiles;
+$('priver').onclick=calculateRiverDistances;
+refreshRiverCacheStatus();
 async function readPhotos(files){
  PR=[];$('pMsg').textContent='사진 정보를 읽는 중…';
  for(const f of files){
@@ -955,10 +1134,19 @@ async function readPhotos(files){
 function render(){
  const id=$('pdst').value,dec=id==='4326'?7:3,fx=id==='4326'?null:proj4('EPSG:4326','EPSG:'+id);
  let nn=0;PR.forEach(r=>{if(r.lat!=null){r.n=++nn;const p=fx?fx.forward([r.lon,r.lat]):[r.lon,r.lat];r.x=p[0];r.y=p[1]}});
- $('ptab').innerHTML='<thead><tr><th>#</th><th>파일</th><th>위도</th><th>경도</th><th>X</th><th>Y</th><th>지번주소</th><th>도로명주소</th><th>고도(m)</th><th>촬영일시</th></tr></thead><tbody>'+
-  PR.map((r,idx)=>r.lat==null?`<tr><td></td><td>${esc(r.name)}</td><td colspan="8" class="msg">${esc(r.st)}</td></tr>`:
-  `<tr data-i="${idx}"><td>${r.n}</td><td>${esc(r.name)}</td><td>${r.lat.toFixed(7)}</td><td>${r.lon.toFixed(7)}</td><td>${r.x.toFixed(dec)}</td><td>${r.y.toFixed(dec)}</td><td>${esc(r.jibun||r.st)}</td><td>${esc(r.road)}</td><td>${esc(r.alt)}</td><td>${esc(r.date)}</td></tr>`).join('')+'</tbody>';
- const ok=PR.some(r=>r.lat!=null);$('pgeo').disabled=!ok||busy;$('pshp').disabled=!ok;$('pcsv').disabled=!ok;drawMap();
+ $('ptab').innerHTML='<thead><tr><th>#</th><th>파일</th><th>위도</th><th>경도</th><th>X</th><th>Y</th><th>지번주소</th><th>도로명주소</th><th>하천 경계 거리(m)</th><th>고도(m)</th><th>촬영일시</th></tr></thead><tbody>'+
+  PR.map((r,idx)=>r.lat==null?`<tr><td></td><td>${esc(r.name)}</td><td colspan="9" class="msg">${esc(r.st)}</td></tr>`:
+  `<tr data-i="${idx}"><td>${r.n}</td><td>${esc(r.name)}</td><td>${r.lat.toFixed(7)}</td><td>${r.lon.toFixed(7)}</td><td>${r.x.toFixed(dec)}</td><td>${r.y.toFixed(dec)}</td><td>${esc(r.jibun||r.st)}</td><td>${esc(r.road)}</td><td>${Number.isFinite(r.riverDistance)?Math.round(r.riverDistance).toLocaleString():''}</td><td>${esc(r.alt)}</td><td>${esc(r.date)}</td></tr>`).join('')+'</tbody>';
+ updatePhotoActions();drawMap();
+}
+function updatePhotoActions(){
+ const ok=PR.some(r=>r.lat!=null);
+ const needsAddress=PR.some(r=>r.lat!=null&&!r.jibun&&!r.road);
+ $('pgeo').hidden=!needsAddress;$('pgeo').disabled=!ok||busy;
+ $('photoActions').classList.toggle('has-address-action',needsAddress);
+ $('pshp').disabled=!ok;$('pcsv').disabled=!ok;
+ $('priver').disabled=!ok||riverBusy||(!riverSegments.length&&!riverCacheCount);
+ $('rClear').disabled=!riverCacheCount;
 }
 $('pdst').onchange=render;
 function jsonp(url){return new Promise((ok,no)=>{const cb='vw'+Date.now()+Math.floor(Math.random()*1e5),s=document.createElement('script');
@@ -995,15 +1183,15 @@ pd.onclick=()=>$('pfile').click();
 $('pfile').onchange=e=>e.target.files.length&&readPhotos([...e.target.files]);
 pd.ondragover=e=>{e.preventDefault();pd.classList.add('on')};pd.ondragleave=()=>pd.classList.remove('on');
 pd.ondrop=e=>{e.preventDefault();pd.classList.remove('on');const f=[...e.dataTransfer.files].filter(x=>x.type.startsWith('image/')||/\.(hei[cf]|jpe?g|png|tiff?)$/i.test(x.name));f.length&&readPhotos(f)};
-const HD=['파일명','위도','경도','X','Y','고도(m)','촬영일시','지번주소','도로명주소'];
-const rowsOf=()=>{const d=$('pdst').value==='4326'?8:3;return PR.filter(r=>r.lat!=null).map(r=>[r.name,r.lat.toFixed(8),r.lon.toFixed(8),r.x.toFixed(d),r.y.toFixed(d),r.alt,r.date,r.jibun,r.road])};
+const HD=['파일명','위도','경도','X','Y','고도(m)','촬영일시','지번주소','도로명주소','하천 경계 거리(m)'];
+const rowsOf=()=>{const d=$('pdst').value==='4326'?8:3;return PR.filter(r=>r.lat!=null).map(r=>[r.name,r.lat.toFixed(8),r.lon.toFixed(8),r.x.toFixed(d),r.y.toFixed(d),r.alt,r.date,r.jibun,r.road,Number.isFinite(r.riverDistance)?String(Math.round(r.riverDistance)):'' ])};
 function saveBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),15000)}
 $('pcsv').onclick=()=>{const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
  saveBlob(new Blob(['\uFEFF'+[HD,...rowsOf()].map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),'photo_coords.csv')};
 $('pshp').onclick=async()=>{
  try{const k=document.querySelector('input[name=enc]:checked').value,dst=CRS.find(c=>c.id===$('pdst').value),L=PR.filter(r=>r.lat!=null),
   [a,b]=buildSHP(L.map(r=>({x:r.x,y:r.y}))),z=new JSZip();
-  z.file('photos.shp',a);z.file('photos.shx',b);z.file('photos.dbf',buildDBF(['name','lat','lon','x','y','alt','date','jibun','road'],rowsOf(),k));
+  z.file('photos.shp',a);z.file('photos.shx',b);z.file('photos.dbf',buildDBF(['name','lat','lon','x','y','alt','date','jibun','road','river_m'],rowsOf(),k));
   z.file('photos.prj',dst.wkt);z.file('photos.cpg',k==='utf8'?'UTF-8':'949');
   saveBlob(await z.generateAsync({type:'blob',compression:'DEFLATE'}),'photo_points.zip')}
  catch(e){$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}};
@@ -1018,14 +1206,15 @@ function setBase(){
  if(k){BASES['브이월드 일반']=L.tileLayer(v('Base','png'),{maxZoom:19,attribution:'© VWorld'});
   BASES['브이월드 위성']=L.tileLayer(v('Satellite','jpeg'),{maxZoom:19,attribution:'© VWorld'});
   OVER['브이월드 지명 (위성용)']=L.tileLayer(v('Hybrid','png'),{maxZoom:19})}
- BASES.OpenStreetMap.addTo(MAP);CTRL=L.control.layers(BASES,OVER).addTo(MAP)}
+ (BASES['브이월드 위성']||BASES.OpenStreetMap).addTo(MAP);CTRL=L.control.layers(BASES,OVER).addTo(MAP)}
 function initMap(){if(MAP)return;MAP=L.map('map').setView([36.5,127.8],7);LAYER=L.layerGroup().addTo(MAP);setBase()}
 function drawMap(){
  initMap();LAYER.clearLayers();M=[];
  const dec=$('pdst').value==='4326'?7:3,pts=[];
  PR.forEach((r,i)=>{if(r.lat==null)return;
+  if(r.riverNearest)L.polyline([[r.lat,r.lon],[r.riverNearest[1],r.riverNearest[0]]],{color:'#d1242f',weight:2,dashArray:'5,5'}).addTo(LAYER);
   const mk=L.marker([r.lat,r.lon],{icon:L.divIcon({className:'',html:`<div class="pin">${r.n}</div>`,iconSize:[24,24],iconAnchor:[12,12]})}).addTo(LAYER);
-  mk.bindPopup(`<b>${r.n}. ${esc(r.name)}</b>${r.jibun?'<br>'+esc(r.jibun):''}${r.road?'<br>'+esc(r.road):''}<br>X ${r.x.toFixed(dec)} · Y ${r.y.toFixed(dec)}${r.date?'<br>'+esc(r.date):''}`);
+  mk.bindPopup(`<b>${r.n}. ${esc(r.name)}</b>${r.jibun?'<br>'+esc(r.jibun):''}${r.road?'<br>'+esc(r.road):''}<br>X ${r.x.toFixed(dec)} · Y ${r.y.toFixed(dec)}${Number.isFinite(r.riverDistance)?`<br>하천 경계까지 ${Math.round(r.riverDistance).toLocaleString()} m`:''}${r.date?'<br>'+esc(r.date):''}`);
   M[i]=mk;pts.push([r.lat,r.lon])});
  if(FIT&&pts.length){MAP.invalidateSize();MAP.fitBounds(pts,{padding:[30,30],maxZoom:18});FIT=false}}
 $('key').addEventListener('change',setBase);
