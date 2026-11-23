@@ -34,8 +34,8 @@ details.card summary{cursor:pointer;color:var(--mu);font-size:14px;font-weight:6
 #photoResultTable{height:360px;overflow:auto}
 #photoResultTable thead th{position:sticky;top:0;background:var(--card);z-index:1}
 #ptab{min-width:1000px}
-.photo-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
-.photo-actions.has-address-action{grid-template-columns:repeat(4,1fr)}
+.photo-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.photo-actions.has-address-action{grid-template-columns:repeat(5,1fr)}
 @media(max-width:560px){.photo-actions,.photo-actions.has-address-action{grid-template-columns:1fr}}
 </style>
 <style>/* Leaflet 1.9.4 (BSD-2-Clause) */
@@ -761,7 +761,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="note" id="riverOverlayMsg">하천 ZIP을 불러오면 지도 레이어 메뉴에서 하천 경계를 표시할 수 있습니다.</div></div>
 <div class="card"><h2>4. 결과</h2>
 <div id="photoResultTable"><table id="ptab"><tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody></table></div>
-<div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button></div>
+<div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button><button id="pclear" type="button" disabled>결과 비우기</button></div>
 </div>
 </div>
 </main>
@@ -949,7 +949,7 @@ const NOTE={kakao:'카카오 디벨로퍼스(developers.kakao.com)에서 앱을 
 const lsGet=k=>{try{return localStorage.getItem(k)||''}catch{return ''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 function provChange(){const p=$('prov').value;$('key').value=lsGet('key_'+p);$('key').disabled=p==='osm';$('provNote').textContent=NOTE[p]}
 $('prov').onchange=provChange;$('key').oninput=()=>lsSet('key_'+$('prov').value,$('key').value.trim());provChange();
-let PR=[],busy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null;
+let PR=[],busy=false,photoReadBusy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null,photoResultsVersion=0;
 const RIVER_GRID_SIZE=10000,RIVER_DRAW_LIMIT=50000,RIVER_INDEX_SCAN_LIMIT=1000000;
 let riverGrid=new Map(),riverIndexPending=0,riverCacheLoadPromise=null,riverOverlay=null,riverDrawToken=0;
 function indexRiverSegment(s){
@@ -1155,7 +1155,7 @@ $('rClear').onclick=clearRiverFiles;
 $('priver').onclick=calculateRiverDistances;
 refreshRiverCacheStatus();
 async function readPhotos(files){
- const added=[];$('pMsg').textContent='사진 정보를 읽는 중…';
+ photoReadBusy=true;updatePhotoActions();const added=[];$('pMsg').textContent='사진 정보를 읽는 중…';
  for(const f of files){
   const r={name:f.name,lat:null,lon:null,alt:'',date:'',jibun:'',road:'',st:''};
   try{const g=await exifr.gps(f);
@@ -1165,7 +1165,7 @@ async function readPhotos(files){
     if(m.DateTimeOriginal)r.date=m.DateTimeOriginal instanceof Date?m.DateTimeOriginal.toLocaleString('ko-KR'):String(m.DateTimeOriginal)}
    else r.st='GPS 정보 없음'}catch(e){r.st='읽기 실패'}
   PR.push(r);added.push(r)}
- const located=PR.filter(r=>r.lat!=null).length,addedLocated=added.filter(r=>r.lat!=null);
+ photoReadBusy=false;const located=PR.filter(r=>r.lat!=null).length,addedLocated=added.filter(r=>r.lat!=null);
  $('pMsg').textContent=`${files.length}장 추가 · 전체 ${PR.length}장 중 ${located}장에서 좌표를 찾았습니다.`+(located<PR.length?' 메신저·SNS로 받은 사진은 위치 정보가 지워지는 경우가 많습니다.':'');
  FIT=true;render();
  if(addedLocated.length&&($('prov').value==='osm'||$('key').value.trim()))geocodeAll(addedLocated);
@@ -1185,6 +1185,7 @@ function updatePhotoActions(){
  $('pgeo').hidden=!needsAddress;$('pgeo').disabled=!ok||busy;
  $('photoActions').classList.toggle('has-address-action',needsAddress);
  $('pshp').disabled=!ok;$('pcsv').disabled=!ok;
+ $('pclear').disabled=!PR.length||busy||photoReadBusy;
  $('priver').disabled=!ok||riverBusy||(!riverSegments.length&&!riverCacheCount);
  $('rClear').disabled=!riverCacheCount;
 }
@@ -1212,12 +1213,19 @@ async function geo(r,p,key){
 async function geocodeAll(rows=PR.filter(r=>r.lat!=null&&!r.jibun&&!r.road)){
  if(busy)return;const p=$('prov').value,key=$('key').value.trim();
  if(p!=='osm'&&!key){$('pMsg').innerHTML='<span class="warn">API 키를 입력해 주세요.</span>';return}
- busy=true;$('pgeo').disabled=true;const L=rows.filter(r=>r.lat!=null);let i=0;
- try{for(const r of L){$('pMsg').textContent=`주소 조회 중… ${++i}/${L.length}건 · 전체 ${PR.length}장`;const a=await geo(r,p,key);r.jibun=a.jibun;r.road=a.road;r.st=a.err||'';render()}
-  $('pMsg').textContent=`주소 조회 완료 (${L.length}건 처리 · 전체 ${PR.length}장)`}
- catch(e){$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
- busy=false;render()}
+ busy=true;$('pgeo').disabled=true;updatePhotoActions();const version=photoResultsVersion,L=rows.filter(r=>r.lat!=null);let i=0;
+ try{for(const r of L){$('pMsg').textContent=`주소 조회 중… ${++i}/${L.length}건 · 전체 ${PR.length}장`;const a=await geo(r,p,key);if(version!==photoResultsVersion)return;r.jibun=a.jibun;r.road=a.road;r.st=a.err||'';render()}
+  if(version===photoResultsVersion)$('pMsg').textContent=`주소 조회 완료 (${L.length}건 처리 · 전체 ${PR.length}장)`}
+ catch(e){if(version===photoResultsVersion)$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
+ finally{if(version===photoResultsVersion){busy=false;render()}}}
 $('pgeo').onclick=()=>geocodeAll();
+function clearPhotoResults(){
+ if(!PR.length||!confirm('사진 결과를 모두 비울까요? 저장된 하천 ZIP과 설정은 유지됩니다.'))return;
+ photoResultsVersion++;busy=false;PR=[];FIT=false;$('pfile').value='';$('pMsg').textContent='';
+ $('ptab').innerHTML='<tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody>';
+ updatePhotoActions();drawMap();
+}
+$('pclear').onclick=clearPhotoResults;
 const pd=$('pdrop');
 pd.onclick=()=>$('pfile').click();
 $('pfile').onchange=e=>e.target.files.length&&readPhotos([...e.target.files]);
