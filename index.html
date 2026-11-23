@@ -34,8 +34,8 @@ details.card summary{cursor:pointer;color:var(--mu);font-size:14px;font-weight:6
 #photoResultTable{height:360px;overflow:auto}
 #photoResultTable thead th{position:sticky;top:0;background:var(--card);z-index:1}
 #ptab{min-width:1000px}
-.photo-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
-.photo-actions.has-address-action{grid-template-columns:repeat(5,1fr)}
+.photo-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.photo-actions.has-address-action{grid-template-columns:repeat(3,1fr)}
 @media(max-width:560px){.photo-actions,.photo-actions.has-address-action{grid-template-columns:1fr}}
 </style>
 <style>/* Leaflet 1.9.4 (BSD-2-Clause) */
@@ -761,7 +761,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="note" id="riverOverlayMsg">하천 ZIP을 불러오면 지도 레이어 메뉴에서 하천 경계를 표시할 수 있습니다.</div></div>
 <div class="card"><h2>4. 결과</h2>
 <div id="photoResultTable"><table id="ptab"><tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody></table></div>
-<div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button><button id="pclear" type="button" disabled>결과 비우기</button></div>
+<div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pland" type="button" disabled>지목 조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button><button id="pclear" type="button" disabled>결과 비우기</button></div>
+<div class="note">지목 조회는 입력한 브이월드 키에 연속지적도 및 토지특성속성조회 API 권한이 있어야 합니다.</div>
 </div>
 </div>
 </main>
@@ -949,7 +950,7 @@ const NOTE={kakao:'카카오 디벨로퍼스(developers.kakao.com)에서 앱을 
 const lsGet=k=>{try{return localStorage.getItem(k)||''}catch{return ''}},lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 function provChange(){const p=$('prov').value;$('key').value=lsGet('key_'+p);$('key').disabled=p==='osm';$('provNote').textContent=NOTE[p]}
 $('prov').onchange=provChange;$('key').oninput=()=>lsSet('key_'+$('prov').value,$('key').value.trim());provChange();
-let PR=[],busy=false,photoReadBusy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null,photoResultsVersion=0;
+let PR=[],busy=false,landBusy=false,photoReadBusy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null,photoResultsVersion=0;
 const RIVER_GRID_SIZE=10000,RIVER_DRAW_LIMIT=50000,RIVER_INDEX_SCAN_LIMIT=1000000;
 let riverGrid=new Map(),riverIndexPending=0,riverCacheLoadPromise=null,riverOverlay=null,riverDrawToken=0;
 function indexRiverSegment(s){
@@ -1174,27 +1175,30 @@ async function readPhotos(files){
 function render(){
  const id=$('pdst').value,dec=id==='4326'?7:3,fx=id==='4326'?null:proj4('EPSG:4326','EPSG:'+id);
  let nn=0;PR.forEach(r=>{if(r.lat!=null){r.n=++nn;const p=fx?fx.forward([r.lon,r.lat]):[r.lon,r.lat];r.x=p[0];r.y=p[1]}});
- $('ptab').innerHTML='<thead><tr><th>#</th><th>파일</th><th>위도</th><th>경도</th><th>X</th><th>Y</th><th>지번주소</th><th>도로명주소</th><th>하천 경계 거리(m)</th><th>고도(m)</th><th>촬영일시</th></tr></thead><tbody>'+
-  PR.map((r,idx)=>r.lat==null?`<tr><td></td><td>${esc(r.name)}</td><td colspan="9" class="msg">${esc(r.st)}</td></tr>`:
-  `<tr data-i="${idx}"><td>${r.n}</td><td>${esc(r.name)}</td><td>${r.lat.toFixed(7)}</td><td>${r.lon.toFixed(7)}</td><td>${r.x.toFixed(dec)}</td><td>${r.y.toFixed(dec)}</td><td>${esc(r.jibun||r.st)}</td><td>${esc(r.road)}</td><td>${Number.isFinite(r.riverDistance)?Math.round(r.riverDistance).toLocaleString():''}</td><td>${esc(r.alt)}</td><td>${esc(r.date)}</td></tr>`).join('')+'</tbody>';
+ $('ptab').innerHTML='<thead><tr><th>#</th><th>파일</th><th>위도</th><th>경도</th><th>X</th><th>Y</th><th>지번주소</th><th>도로명주소</th><th>지목</th><th>하천 경계 거리(m)</th><th>고도(m)</th><th>촬영일시</th></tr></thead><tbody>'+
+  PR.map((r,idx)=>r.lat==null?`<tr><td></td><td>${esc(r.name)}</td><td colspan="10" class="msg">${esc(r.st)}</td></tr>`:
+  `<tr data-i="${idx}"><td>${r.n}</td><td>${esc(r.name)}</td><td>${r.lat.toFixed(7)}</td><td>${r.lon.toFixed(7)}</td><td>${r.x.toFixed(dec)}</td><td>${r.y.toFixed(dec)}</td><td>${esc(r.jibun||r.st)}</td><td>${esc(r.road)}</td><td class="${r.jimok?'':'msg'}" title="${esc(r.jimokYear?`${r.jimokYear}년 기준`:r.jimokStatus||'')}">${esc(r.jimok||r.jimokStatus||'')}</td><td>${Number.isFinite(r.riverDistance)?Math.round(r.riverDistance).toLocaleString():''}</td><td>${esc(r.alt)}</td><td>${esc(r.date)}</td></tr>`).join('')+'</tbody>';
  updatePhotoActions();drawMap();
 }
 function updatePhotoActions(){
- const ok=PR.some(r=>r.lat!=null);
+ const ok=PR.some(r=>r.lat!=null),needsLand=PR.some(r=>r.lat!=null&&!r.jimok);
  const needsAddress=PR.some(r=>r.lat!=null&&!r.jibun&&!r.road);
- $('pgeo').hidden=!needsAddress;$('pgeo').disabled=!ok||busy;
+ $('pgeo').hidden=!needsAddress;$('pgeo').disabled=!ok||busy||landBusy;
  $('photoActions').classList.toggle('has-address-action',needsAddress);
+ $('pland').disabled=!needsLand||busy||landBusy;
  $('pshp').disabled=!ok;$('pcsv').disabled=!ok;
- $('pclear').disabled=!PR.length||busy||photoReadBusy;
+ $('pclear').disabled=!PR.length||busy||landBusy||photoReadBusy;
  $('priver').disabled=!ok||riverBusy||(!riverSegments.length&&!riverCacheCount);
  $('rClear').disabled=!riverCacheCount;
 }
 $('pdst').onchange=render;
-function jsonp(url){return new Promise((ok,no)=>{const cb='vw'+Date.now()+Math.floor(Math.random()*1e5),s=document.createElement('script');
- const t=setTimeout(()=>{s.remove();no(new Error('브이월드 응답 시간 초과'))},10000);
- window[cb]=d=>{clearTimeout(t);delete window[cb];s.remove();ok(d)};
- s.onerror=()=>{clearTimeout(t);s.remove();no(new Error('브이월드 요청 실패 (키와 등록된 도메인을 확인하세요)'))};
- s.src=url+'&callback='+cb;document.head.appendChild(s)})}
+function jsonp(url){return new Promise((ok,no)=>{const cb='vw'+Date.now()+Math.floor(Math.random()*1e5),s=document.createElement('script');let done=false;
+ const finish=(err,data)=>{if(done)return;done=true;clearTimeout(t);delete window[cb];s.remove();err?no(err):ok(data)};
+ const t=setTimeout(()=>finish(new Error('브이월드 응답이 없거나 JSONP 오류입니다. API 키 권한, 등록 도메인과 사용량을 확인하세요.')),10000);
+ window[cb]=d=>finish(null,d);
+ s.onerror=()=>finish(new Error('브이월드 요청 실패. API 키 권한과 등록 도메인을 확인하세요.'));
+ s.onload=()=>{if(!done)finish(new Error('브이월드가 JSONP 응답을 반환하지 않았습니다. API 키 권한, 등록 도메인과 사용량을 확인하세요.'))};
+ s.src=url+(url.includes('?')?'&':'?')+'callback='+cb;document.head.appendChild(s)})}
 function loadKakao(key){return new Promise((ok,no)=>{
  if(window.kakao&&kakao.maps&&kakao.maps.services)return ok();
  const s=document.createElement('script');s.src='https://dapi.kakao.com/v2/maps/sdk.js?appkey='+encodeURIComponent(key)+'&libraries=services&autoload=false';
@@ -1219,9 +1223,87 @@ async function geocodeAll(rows=PR.filter(r=>r.lat!=null&&!r.jibun&&!r.road)){
  catch(e){if(version===photoResultsVersion)$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
  finally{if(version===photoResultsVersion){busy=false;render()}}}
 $('pgeo').onclick=()=>geocodeAll();
+function vworldUrl(endpoint,params,key){
+ const q=new URLSearchParams({...params,key,domain:location.origin});
+ return endpoint+'?'+q.toString()
+}
+function vworldApiError(code,message){
+ const help={
+  INVALID_KEY:'등록되지 않은 브이월드 인증키입니다.',
+  INCORRECT_KEY:'인증키의 등록 도메인이 일치하지 않습니다.',
+  UNAVAILABLE_KEY:'브이월드 인증키를 일시적으로 사용할 수 없습니다.',
+  OVER_REQUEST_LIMIT:'브이월드 API 일일 사용량을 초과했습니다.',
+  PARAM_REQUIRED:'브이월드 API 필수 요청값이 누락되었습니다.',
+  INVALID_TYPE:'브이월드 API 요청값 형식이 올바르지 않습니다.',
+  INVALID_RANGE:'브이월드 API 요청값이 허용 범위를 벗어났습니다.',
+  SYSTEM_ERROR:'브이월드 API에서 시스템 오류가 발생했습니다.',
+  UNKNOWN_ERROR:'브이월드 API에서 알 수 없는 오류가 발생했습니다.'
+ };
+ return (help[code]||`브이월드 API 오류${code?` (${code})`:''}`)+(message?` ${message}`:'')
+}
+async function lookupLandCategory(r,key){
+ const parcel=await jsonp(vworldUrl('https://api.vworld.kr/req/data',{
+  service:'data',version:'2.0',request:'GetFeature',data:'LP_PA_CBND_BUBUN',format:'json',
+  geomFilter:`POINT(${r.lon} ${r.lat})`,size:'100',page:'1',geometry:'false',attribute:'true',crs:'EPSG:4326'
+ },key));
+ const response=parcel.response||parcel,status=response.status;
+ if(status==='NOT_FOUND')throw new Error('해당 좌표의 필지를 찾지 못했습니다.');
+ if(status!=='OK')throw new Error(vworldApiError(response.error&&response.error.code,response.error&&response.error.text));
+ const result=response.result||{},features=result.featureCollection&&result.featureCollection.features||result.features;
+ if(!Array.isArray(features))throw new Error('연속지적도 응답 형식이 올바르지 않습니다.');
+ if(!features.length)throw new Error('해당 좌표의 필지 정보가 없습니다.');
+ if(features.length!==1)throw new Error(`좌표에 여러 필지(${features.length}개)가 겹쳐 지목을 특정할 수 없습니다.`);
+ const pnu=features[0].properties&&features[0].properties.pnu;
+ if(typeof pnu!=='string'||!pnu)throw new Error('연속지적도 응답에 필지번호(PNU)가 없습니다.');
+ const data=await jsonp(vworldUrl('https://api.vworld.kr/ned/data/getLandCharacteristics',{
+  pnu,format:'json',numOfRows:'1000',pageNo:'1'
+ },key));
+ const payload=data.landCharacteristicss;
+ if(!payload||typeof payload!=='object')throw new Error('토지특성 응답 형식이 올바르지 않습니다.');
+ const code=payload.resultCode;
+ if(code&&!['00','0000','OK','SUCCESS'].includes(String(code).toUpperCase()))
+  throw new Error(vworldApiError(String(code),payload.resultMsg));
+ let fields=payload.field;
+ if(fields&&!Array.isArray(fields))fields=[fields];
+ if(!Array.isArray(fields))throw new Error('토지특성 응답에 지목 정보가 없습니다.');
+ if(!fields.length)throw new Error('해당 필지의 지목 정보가 없습니다.');
+ const latest=fields.slice().sort((a,b)=>(Number(b.stdrYear)||0)-(Number(a.stdrYear)||0)||(Number(b.stdrMt)||0)-(Number(a.stdrMt)||0));
+ const newest=latest[0],name=typeof newest.lndcgrCodeNm==='string'?newest.lndcgrCodeNm.trim():'';
+ if(!name)throw new Error('토지특성 응답에 지목명(lndcgrCodeNm)이 없습니다.');
+ const sameDate=latest.filter(x=>(Number(x.stdrYear)||0)===(Number(newest.stdrYear)||0)&&
+  (Number(x.stdrMt)||0)===(Number(newest.stdrMt)||0));
+ if(sameDate.some(x=>x.lndcgrCodeNm!==name))
+  throw new Error('같은 기준일에 여러 지목이 반환되어 결과를 특정할 수 없습니다.');
+ return{name,year:newest.stdrYear||''}
+}
+async function lookupLandCategories(){
+ if(landBusy||busy)return;
+ const rows=PR.filter(r=>r.lat!=null&&!r.jimok),key=$('key').value.trim();
+ if(!rows.length)return;
+ if($('prov').value!=='vworld'){
+  rows.forEach(r=>r.jimokStatus='브이월드 주소 서비스와 키를 선택하세요.');
+  render();$('pMsg').textContent='지목 조회에는 브이월드 인증키가 필요합니다.';return
+ }
+ if(!key){
+  rows.forEach(r=>r.jimokStatus='브이월드 API 키 필요');
+  render();$('pMsg').textContent='지목 조회를 위해 브이월드 API 키를 입력하세요.';return
+ }
+ landBusy=true;updatePhotoActions();const version=photoResultsVersion;let done=0,failed=0;
+ try{
+  for(const r of rows){
+   if(version!==photoResultsVersion)return;
+   r.jimokStatus='조회 중…';render();
+   try{const result=await lookupLandCategory(r,key);if(version!==photoResultsVersion)return;r.jimok=result.name;r.jimokYear=result.year;r.jimokStatus='';done++}
+   catch(e){if(version!==photoResultsVersion)return;r.jimokStatus=e.message||String(e);failed++}
+   render();$('pMsg').textContent=`지목 조회 중… ${done+failed}/${rows.length}장`
+  }
+  if(version===photoResultsVersion)$('pMsg').textContent=`지목 조회 완료: ${done}건 성공, ${failed}건 확인 필요`
+ }finally{if(version===photoResultsVersion){landBusy=false;render()}}
+}
+$('pland').onclick=lookupLandCategories;
 function clearPhotoResults(){
  if(!PR.length||!confirm('사진 결과를 모두 비울까요? 저장된 하천 ZIP과 설정은 유지됩니다.'))return;
- photoResultsVersion++;busy=false;PR=[];FIT=false;$('pfile').value='';$('pMsg').textContent='';
+ photoResultsVersion++;busy=false;landBusy=false;PR=[];FIT=false;$('pfile').value='';$('pMsg').textContent='';
  $('ptab').innerHTML='<tbody><tr><td class="msg">사진을 불러오면 좌표와 지번이 표시됩니다.</td></tr></tbody>';
  updatePhotoActions();drawMap();
 }
@@ -1231,15 +1313,15 @@ pd.onclick=()=>$('pfile').click();
 $('pfile').onchange=e=>e.target.files.length&&readPhotos([...e.target.files]);
 pd.ondragover=e=>{e.preventDefault();pd.classList.add('on')};pd.ondragleave=()=>pd.classList.remove('on');
 pd.ondrop=e=>{e.preventDefault();pd.classList.remove('on');const f=[...e.dataTransfer.files].filter(x=>x.type.startsWith('image/')||/\.(hei[cf]|jpe?g|png|tiff?)$/i.test(x.name));f.length&&readPhotos(f)};
-const HD=['파일명','위도','경도','X','Y','고도(m)','촬영일시','지번주소','도로명주소','하천 경계 거리(m)'];
-const rowsOf=()=>{const d=$('pdst').value==='4326'?8:3;return PR.filter(r=>r.lat!=null).map(r=>[r.name,r.lat.toFixed(8),r.lon.toFixed(8),r.x.toFixed(d),r.y.toFixed(d),r.alt,r.date,r.jibun,r.road,Number.isFinite(r.riverDistance)?String(Math.round(r.riverDistance)):'' ])};
+const HD=['파일명','위도','경도','X','Y','고도(m)','촬영일시','지번주소','도로명주소','지목','하천 경계 거리(m)'];
+const rowsOf=()=>{const d=$('pdst').value==='4326'?8:3;return PR.filter(r=>r.lat!=null).map(r=>[r.name,r.lat.toFixed(8),r.lon.toFixed(8),r.x.toFixed(d),r.y.toFixed(d),r.alt,r.date,r.jibun,r.road,r.jimok||'',Number.isFinite(r.riverDistance)?String(Math.round(r.riverDistance)):'' ])};
 function saveBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),15000)}
 $('pcsv').onclick=()=>{const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
  saveBlob(new Blob(['\uFEFF'+[HD,...rowsOf()].map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),'photo_coords.csv')};
 $('pshp').onclick=async()=>{
  try{const k=document.querySelector('input[name=enc]:checked').value,dst=CRS.find(c=>c.id===$('pdst').value),L=PR.filter(r=>r.lat!=null),
   [a,b]=buildSHP(L.map(r=>({x:r.x,y:r.y}))),z=new JSZip();
-  z.file('photos.shp',a);z.file('photos.shx',b);z.file('photos.dbf',buildDBF(['name','lat','lon','x','y','alt','date','jibun','road','river_m'],rowsOf(),k));
+  z.file('photos.shp',a);z.file('photos.shx',b);z.file('photos.dbf',buildDBF(['name','lat','lon','x','y','alt','date','jibun','road','jimok','river_m'],rowsOf(),k));
   z.file('photos.prj',dst.wkt);z.file('photos.cpg',k==='utf8'?'UTF-8':'949');
   saveBlob(await z.generateAsync({type:'blob',compression:'DEFLATE'}),'photo_points.zip')}
  catch(e){$('pMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}};
