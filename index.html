@@ -751,10 +751,15 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="note" id="provNote"></div></div>
 <details class="card">
 <summary>하천 경계 ZIP 자료 추가 / 관리</summary>
+<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:10px">
+<div><label for="sharedRiverSelect">공유 하천 자료 (필요한 지역만 다운로드)</label><select id="sharedRiverSelect"><option value="">자료를 선택하세요</option><option value="major">전국 큰 하천</option><option value="gangwon">강원특별자치도</option><option value="gyeonggi">경기</option><option value="gyeongnam">경남</option><option value="gyeongbuk">경북</option><option value="daegu">대구</option><option value="daejeon">대전</option><option value="busan">부산</option><option value="seoul">서울</option><option value="sejong">세종</option><option value="ulsan">울산</option><option value="incheon">인천</option><option value="jeonnam-gwangju">전남·광주 통합특별시</option><option value="jeonbuk">전북특별자치도</option><option value="jeju">제주</option><option value="chungnam">충남</option><option value="chungbuk">충북</option></select></div>
+<button id="sharedRiverLoad" type="button" disabled>공유 자료 가져오기</button>
+</div>
+<div class="note">선택한 ZIP만 내려받아 이 브라우저에 저장합니다. 사진·좌표·API 키는 공유 저장소로 전송하지 않습니다.</div>
 <div id="rDrop" style="margin-top:10px">소하천구역도·지방하천도·국가하천도 ZIP 선택 (여러 개 가능)<input id="rfile" type="file" accept=".zip,application/zip" multiple hidden></div>
 <div class="msg" id="rMsg"></div>
 <div class="r" style="margin-top:8px"><button id="rClear" type="button" disabled>저장된 하천 자료 삭제</button></div>
-<div class="note">브이월드 <a href="https://www.vworld.kr/dtmk/dtmk_ntads_s001.do?searchKeyword=%ED%95%98%EC%B2%9C" target="_blank" rel="noopener">공간정보 다운로드</a>에서 받은 하천 경계 ZIP들을 추가하세요. ZIP 안에 하천 경계 SHP와 같은 폴더의 .prj 파일이 있어야 합니다. 자료는 이 브라우저에 저장되고, 거리 계산을 누를 때 사용합니다.</div>
+<div class="note">직접 받은 자료도 추가할 수 있습니다. ZIP 안에 경계 SHP와 같은 폴더의 .prj 파일이 필요합니다. 브이월드 <a href="https://www.vworld.kr/dtmk/dtmk_ntads_s001.do?searchKeyword=%ED%95%98%EC%B2%9C" target="_blank" rel="noopener">공간정보 다운로드</a></div>
 </details>
 <div class="card"><h2>3. 지도</h2><div id="map"></div>
 <div class="note">지도의 번호는 아래 결과 표의 # 번호와 같고, 표의 행을 누르면 해당 위치로 이동합니다. 기본 배경 지도는 OpenStreetMap이며, 브이월드 지도를 사용하려면 주소 조회 설정에서 인증키를 입력하세요. 불러온 하천 경계는 지도 오른쪽 위 레이어 메뉴에서 켜고 끌 수 있습니다.</div>
@@ -952,6 +957,26 @@ function provChange(){const p=$('prov').value;$('key').value=lsGet('key_'+p);$('
 $('prov').onchange=provChange;$('key').oninput=()=>lsSet('key_'+$('prov').value,$('key').value.trim());provChange();
 let PR=[],busy=false,landBusy=false,photoReadBusy=false,riverSegments=[],riverCacheCount=0,riverLoadedIds=new Set(),riverBusy=false,riverDbPromise=null,photoResultsVersion=0;
 const RIVER_GRID_SIZE=10000,RIVER_DRAW_LIMIT=50000,RIVER_INDEX_SCAN_LIMIT=1000000;
+const SHARED_RIVER_BASE='https://whdlytlyfjguhiabzvpx.supabase.co/storage/v1/object/public/river-data/';
+const SHARED_RIVER_DATASETS=[
+ {key:'major',label:'전국 큰 하천',file:'export (3).zip'},
+ {key:'gangwon',label:'강원특별자치도',file:'river-gangwon.zip'},
+ {key:'gyeonggi',label:'경기',file:'river-gyeonggi.zip'},
+ {key:'gyeongnam',label:'경남',file:'river-gyeongnam.zip'},
+ {key:'gyeongbuk',label:'경북',file:'river-gyeongbuk.zip'},
+ {key:'daegu',label:'대구',file:'river-daegu.zip'},
+ {key:'daejeon',label:'대전',file:'river-daejeon.zip'},
+ {key:'busan',label:'부산',file:'river-busan.zip'},
+ {key:'seoul',label:'서울',file:'river-seoul.zip'},
+ {key:'sejong',label:'세종',file:'river-sejong.zip'},
+ {key:'ulsan',label:'울산',file:'river-ulsan.zip'},
+ {key:'incheon',label:'인천',file:'river-incheon.zip'},
+ {key:'jeonnam-gwangju',label:'전남·광주 통합특별시',file:'river-jeonnam-gwangju.zip'},
+ {key:'jeonbuk',label:'전북특별자치도',file:'river-jeonbuk.zip'},
+ {key:'jeju',label:'제주',file:'river-jeju.zip'},
+ {key:'chungnam',label:'충남',file:'river-chungnam.zip'},
+ {key:'chungbuk',label:'충북',file:'river-chungbuk.zip'}
+];
 let riverGrid=new Map(),riverIndexPending=0,riverCacheLoadPromise=null,riverOverlay=null,riverDrawToken=0;
 function indexRiverSegment(s){
  const ax=s.a[0],ay=s.a[1],dx=s.b[0]-ax,dy=s.b[1]-ay;
@@ -1086,6 +1111,8 @@ function measureRiverDistances(){
 }
 async function importRiverFiles(files){
  if(riverBusy)return;
+ riverBusy=true;updatePhotoActions();
+ try{
  const errors=[];let imported=0,totalSegments=0;
  $('rMsg').className='msg';$('rMsg').textContent=`하천 ZIP ${files.length}개를 확인하고 브라우저에 저장하는 중…`;
  for(const file of files){
@@ -1105,6 +1132,52 @@ async function importRiverFiles(files){
   $('rMsg').textContent=`하천 ZIP ${imported}개에서 ${totalSegments.toLocaleString()}개 선분을 준비했습니다. 사진을 불러온 뒤 ‘하천 거리 계산’을 누르세요.`+(errors.length?' '+errors.join(' / '):'');
  }else $('rMsg').innerHTML='<span class="err">'+esc(errors.join(' / ')||'하천 데이터를 불러오지 못했습니다.')+'</span>';
  render();
+ }finally{riverBusy=false;updatePhotoActions()}
+}
+async function loadSharedRiverFile(){
+ if(riverBusy)return;
+ const dataset=SHARED_RIVER_DATASETS.find(item=>item.key===$('sharedRiverSelect').value);
+ if(!dataset)return;
+ riverBusy=true;updatePhotoActions();
+ try{
+  const cached=await riverDbRequest('readonly',store=>store.getAll());
+  const existing=cached.find(record=>record.source===dataset.key);
+  if(existing){
+   if(!riverLoadedIds.has(existing.id)){
+    $('rMsg').textContent=`${dataset.label} 자료를 브라우저 저장소에서 여는 중…`;
+    const parsed=await parseRiverArchive(existing.blob);
+    await indexRiverSegments(parsed);
+    riverSegments=riverSegments.concat(parsed);riverLoadedIds.add(existing.id);
+    PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
+    render();
+   }
+   $('rMsg').textContent=`${dataset.label} 자료는 이미 이 브라우저에 저장되어 있습니다.`;
+   return;
+  }
+  $('rMsg').textContent=`${dataset.label} 하천 자료를 내려받는 중…`;
+  const response=await fetch(SHARED_RIVER_BASE+encodeURIComponent(dataset.file));
+  if(!response.ok)throw new Error(`공유 자료 다운로드에 실패했습니다 (HTTP ${response.status}).`);
+  const blob=await response.blob();
+  if(!blob.size)throw new Error('공유 자료가 비어 있습니다.');
+  $('rMsg').textContent=`${dataset.label} ZIP을 확인하고 있습니다…`;
+  const parsed=await parseRiverArchive(blob);
+  await indexRiverSegments(parsed);
+  riverSegments=riverSegments.concat(parsed);
+  let savedId=null,saveError='',countError='';
+  try{
+   savedId=await riverDbRequest('readwrite',store=>store.add({name:dataset.file,source:dataset.key,size:blob.size,lastModified:Date.now(),blob}));
+   riverLoadedIds.add(savedId);
+   riverCacheCount=cached.length+1;
+  }catch(e){saveError=e.message||String(e)}
+  if(savedId!==null){
+   try{riverCacheCount=await riverDbRequest('readonly',store=>store.count())}
+   catch(e){countError=e.message||String(e)}
+  }
+  PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
+  render();
+  $('rMsg').textContent=`${dataset.label} 자료 ${parsed.length.toLocaleString()}개 선분을 준비했습니다.`+(savedId===null?` 브라우저 저장에 실패해 이 탭에서만 사용할 수 있습니다: ${saveError}`:' 다음 방문에도 사용할 수 있도록 이 브라우저에 저장했습니다.')+(countError?` 저장 자료 개수를 확인하지 못했습니다: ${countError}`:'');
+ }catch(e){$('rMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
+ finally{riverBusy=false;updatePhotoActions()}
 }
 function loadCachedRiverFiles(){
  if(riverCacheLoadPromise)return riverCacheLoadPromise;
@@ -1139,15 +1212,21 @@ async function calculateRiverDistances(){
  finally{riverBusy=false;updatePhotoActions()}
 }
 async function clearRiverFiles(){
+ if(riverBusy)return;
  if(!confirm('이 브라우저에 저장된 하천 ZIP 자료를 모두 삭제할까요?'))return;
+ riverBusy=true;updatePhotoActions();
  try{
   await riverDbRequest('readwrite',store=>store.clear());
   riverCacheCount=0;riverSegments=[];riverGrid.clear();riverLoadedIds.clear();
   PR.forEach(r=>{delete r.riverDistance;delete r.riverNearest});
   $('rMsg').textContent='저장된 하천 자료를 삭제했습니다.';if(riverOverlay)riverOverlay.redraw();render();
  }catch(e){$('rMsg').innerHTML='<span class="err">'+esc(e.message||e)+'</span>'}
+ finally{riverBusy=false;updatePhotoActions()}
 }
 const rd=$('rDrop');
+const sharedRiverSelect=$('sharedRiverSelect');
+sharedRiverSelect.onchange=()=>updatePhotoActions();
+$('sharedRiverLoad').onclick=loadSharedRiverFile;
 rd.onclick=()=>$('rfile').click();
 $('rfile').onchange=e=>{const files=[...e.target.files];if(files.length)importRiverFiles(files);e.target.value=''};
 rd.ondragover=e=>{e.preventDefault();rd.classList.add('on')};rd.ondragleave=()=>rd.classList.remove('on');
@@ -1189,7 +1268,9 @@ function updatePhotoActions(){
  $('pshp').disabled=!ok;$('pcsv').disabled=!ok;
  $('pclear').disabled=!PR.length||busy||landBusy||photoReadBusy;
  $('priver').disabled=!ok||riverBusy||(!riverSegments.length&&!riverCacheCount);
- $('rClear').disabled=!riverCacheCount;
+ $('sharedRiverLoad').disabled=riverBusy||!$('sharedRiverSelect').value;
+ $('sharedRiverSelect').disabled=riverBusy;
+ $('rClear').disabled=riverBusy||!riverCacheCount;
 }
 $('pdst').onchange=render;
 function jsonp(url){return new Promise((ok,no)=>{const cb='vw'+Date.now()+Math.floor(Math.random()*1e5),s=document.createElement('script');let done=false;
