@@ -37,6 +37,13 @@ details.card summary{cursor:pointer;color:var(--mu);font-size:14px;font-weight:6
 .photo-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
 .photo-actions.has-address-action{grid-template-columns:repeat(3,1fr)}
 @media(max-width:560px){.photo-actions,.photo-actions.has-address-action{grid-template-columns:1fr}}
+.survey-photo-row{display:grid;grid-template-columns:minmax(140px,1fr) 150px minmax(110px,1fr);gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.survey-review-list{max-height:300px;overflow:auto;border:1px solid var(--bd);border-radius:8px;padding:8px}
+.survey-review-item{display:flex;gap:8px;align-items:flex-start;padding:6px;border-bottom:1px solid var(--bd);font-size:13px}
+.survey-review-item:last-child{border-bottom:0}
+.survey-map{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.survey-map select{margin-bottom:8px}
+@media(max-width:560px){.survey-photo-row{grid-template-columns:1fr}.survey-map{grid-template-columns:1fr}}
 </style>
 <style>/* Leaflet 1.9.4 (BSD-2-Clause) */
 /* required styles */
@@ -711,7 +718,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <h1>CSV 변환 · 사진 좌표</h1>
 <p class="sub">CSV 좌표 변환과 사진 위치 확인을 한 페이지에서 사용할 수 있습니다.</p>
 
-<div class="tabs"><button data-t="csv">CSV → SHP</button><button class="on" data-t="photo">사진 좌표 · 지번 조회</button></div>
+<div class="tabs"><button data-t="csv">CSV → SHP</button><button class="on" data-t="photo">사진 좌표 · 지번 조회</button><button data-t="survey">조사 회차 엑셀</button></div>
 <div id="secCsv" hidden>
 <div class="card"><h2>1. CSV 불러오기</h2>
 <div id="drop">CSV 파일을 끌어다 놓거나 클릭해서 선택<input id="file" type="file" accept=".csv,.txt,.tsv" hidden></div>
@@ -769,6 +776,41 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div id="photoActions" class="photo-actions"><button id="priver" disabled>하천 거리 계산</button><button id="pgeo" disabled>주소 재조회</button><button id="pland" type="button" disabled>지목 조회</button><button id="pshp" disabled>SHP(ZIP) 저장</button><button id="pcsv" disabled>CSV 저장</button><button id="pclear" type="button" disabled>결과 비우기</button></div>
 <div class="note">지목 조회는 입력한 브이월드 키에 연속지적도 및 토지특성속성조회 API 권한이 있어야 합니다.</div>
 </div>
+</div>
+</div>
+<div id="secSurvey" hidden>
+<div class="card"><h2>조사 엑셀과 현장 사진</h2>
+<div class="g"><div><label for="surveyWorkbookFile">원본 조사 엑셀 (.xlsx)</label><input id="surveyWorkbookFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+<div><label for="surveyDate">이번 조사일</label><input id="surveyDate" type="date"></div></div>
+<div style="margin-top:12px"><label for="surveyPhotoFiles">이번 회차 사진 (여러 장)</label><input id="surveyPhotoFiles" type="file" accept="image/*,.heic,.heif" multiple></div>
+<div class="note">신규 퇴비가 없으면 사진을 선택하지 않고 원본 엑셀과 조사일만 지정해도 이전 미처리 행을 이어 붙일 수 있습니다.</div>
+<div class="note">하천 거리는 사진 좌표와 이 브라우저에 저장된 하천 ZIP 자료로 계산합니다. 자료가 없으면 사진 좌표·주소·지목은 처리되지만 거리는 확인 필요로 표시됩니다.</div>
+<div class="note">엑셀과 사진은 이 기기 안에서만 처리하고 저장 파일에만 반영합니다. 좌표·지번·엑셀 내용은 서버로 전송하지 않습니다. 주소/지목 조회 시 좌표만 선택한 주소 서비스로 전송됩니다. .xlsm 매크로는 지원하지 않습니다.</div>
+<div class="msg" id="surveyLoadMsg"></div></div>
+<div class="card" id="surveyWorkbookCard" hidden><h2>시트 확인</h2>
+<div class="survey-map">
+<div><label for="surveySheetJaun">자운지구 시트</label><select id="surveySheetJaun"></select></div>
+<div><label for="surveySheetMandae">만대(양구) 시트</label><select id="surveySheetMandae"></select></div>
+<div><label for="surveySheetInje">인제 시트</label><select id="surveySheetInje"></select></div>
+<div><label for="surveyHeaderRow">헤더 행 번호</label><input id="surveyHeaderRow" type="text" inputmode="numeric" value="1"></div>
+</div>
+<div class="note">세 시트의 열 구성이 같은지 확인하세요. 헤더 행 번호는 자동으로 찾은 값이며 필요하면 바꿀 수 있습니다.</div>
+<div id="surveyColumnMap" class="g3" style="margin-top:12px"></div>
+<div class="msg" id="surveySchemaMsg"></div></div>
+<div class="card" id="surveyPhotosCard" hidden><h2>사진 위치와 시트 배정 검토</h2>
+<div class="note">주소에서 시트를 확정할 수 없는 사진은 직접 배정해야 합니다. 좌표가 없거나 주소·지목 조회에 실패한 항목은 저장 전 확인이 필요합니다.</div>
+<div id="surveyPhotoRows"></div>
+<div class="r" style="margin-top:10px"><button id="surveyLookup" type="button">주소·지목 조회</button><button id="surveyPrepare" type="button">자료 검토 준비</button></div>
+<div class="msg" id="surveyPhotoMsg"></div></div>
+<div class="card" id="surveyReviewCard" hidden><h2>이번 회차 처리 대상 검토</h2>
+<div class="note">최신 조사일의 미처리 행을 불러왔습니다. 처리한 퇴비를 선택하면 새 회차에 노란색 ‘처리’ 행으로 기록하고 이후 회차에서는 제외합니다. 선택하지 않은 행은 새 회차에 ‘방치’로 이어집니다. 기존 이력 행은 수정하지 않습니다.</div>
+<div id="surveyCarryList" class="survey-review-list"></div>
+<div class="r" style="margin-top:10px"><label><input id="surveyReviewConfirm" type="checkbox"> 미확인 GPS·주소·지목·하천 거리와 시트 배정을 검토했습니다.</label></div>
+<div class="msg" id="surveyReviewMsg"></div></div>
+<div class="card" id="surveyExportCard" hidden><h2>결과 확인 및 저장</h2>
+<div id="surveySummary" class="msg"></div>
+<button id="surveyExport" type="button">새 조사 엑셀 다운로드</button>
+<div class="note">신규 퇴비의 체적·규격 등 현장 관측값은 비워 둡니다. 내려받은 파일에서 직접 입력하세요.</div></div>
 </div>
 </main>
 
@@ -946,7 +988,7 @@ $('go').onclick=async()=>{
 
 /* ===== 사진 좌표 추출 ===== */
 CRS.forEach(c=>$('pdst').add(new Option(c.label,c.id)));$('pdst').value='5181';
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$('secCsv').hidden=b.dataset.t!=='csv';$('secPhoto').hidden=b.dataset.t!=='photo'});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$('secCsv').hidden=b.dataset.t!=='csv';$('secPhoto').hidden=b.dataset.t!=='photo';$('secSurvey').hidden=b.dataset.t!=='survey';if(b.dataset.t==='photo'&&MAP)setTimeout(()=>MAP.invalidateSize(),50)});
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const NOTE={kakao:'카카오 디벨로퍼스(developers.kakao.com)에서 앱을 만들어 JavaScript 키를 발급받고, 플랫폼 > Web에 이 페이지를 올린 서버 도메인을 등록해야 합니다. 파일을 직접 열었을 때(file://)는 동작하지 않습니다.',
@@ -1292,7 +1334,7 @@ async function geo(r,p,key){
  if(p==='vworld'){
   const q=t=>jsonp(`https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${r.lon},${r.lat}&type=${t}&format=json&key=${encodeURIComponent(key)}`).then(d=>{
    const x=d.response;if(x.status==='OK')return x.result[0].text;if(x.status==='NOT_FOUND')return '';throw new Error((x.error&&x.error.text)||x.status)});
-  const [a,b]=await Promise.all([q('PARCEL'),q('ROAD')]);return{jibun:a,road:b,err:a?'':'주소 없음'}}
+  const [a,b]=await Promise.all([q('PARCEL'),q('ROAD')]);return{jibun:a,road:b,err:a||b?'':'주소 없음'}}
  const d=await(await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&zoom=18&lat=${r.lat}&lon=${r.lon}`)).json();
  await sleep(1100);return{jibun:'(지번 미제공)',road:d.display_name||'',err:d.display_name?'':'주소 없음'}}
 async function geocodeAll(rows=PR.filter(r=>r.lat!=null&&!r.jibun&&!r.road)){
@@ -1500,6 +1542,464 @@ $('key').addEventListener('change',setBase);
 document.querySelector('.tabs button[data-t=photo]').addEventListener('click',()=>{if(MAP)setTimeout(()=>MAP.invalidateSize(),50)});
 $('ptab').onclick=e=>{const tr=e.target.closest('tr[data-i]');if(!tr)return;const m=M[+tr.dataset.i];
  if(m){MAP.setView(m.getLatLng(),Math.max(MAP.getZoom(),17));m.openPopup();$('map').scrollIntoView({block:'nearest',behavior:'smooth'})}};
+
+/* ===== 조사 회차 엑셀 처리: 파일과 사진은 브라우저 안에서만 유지 ===== */
+const SURVEY_TARGETS=[
+ {key:'jaun',title:'자운지구',select:'surveySheetJaun',aliases:['자운']},
+ {key:'manda',title:'만대(양구)',select:'surveySheetMandae',aliases:['만대','양구']},
+ {key:'inje',title:'인제군',select:'surveySheetInje',aliases:['인제']}
+];
+const SURVEY_FIELDS=[
+ {key:'surveyDate',label:'조사일시',required:true,aliases:['조사일시','조사일','조사날짜','점검일','현장조사일']},
+ {key:'status',label:'상태',required:true,aliases:['상태','처리상태','관리상태']},
+ {key:'firstDate',label:'최초조사일',aliases:['최초조사일','최초발견일','발견일','최초확인일']},
+ {key:'parcel',label:'지번',required:true,aliases:['지번주소','지번','필지주소','주소']},
+ {key:'land',label:'지목',required:true,aliases:['지목','토지지목']},
+ {key:'latitude',label:'위도',required:true,aliases:['위도','gps위도','latitude','lat']},
+ {key:'longitude',label:'경도',required:true,aliases:['경도','gps경도','longitude','lon','lng']},
+ {key:'riverDistance',label:'현재 수계와의 거리(m)',required:true,aliases:['현재수계와의거리m','수계와의거리m','하천과의거리m','하천거리m','수계거리m','하천경계거리m']},
+ {key:'volume',label:'체적',aliases:['체적','부피','퇴비체적']},
+ {key:'sprayDate',label:'살포일',aliases:['살포일','처리일','퇴비처리일']},
+ {key:'days',label:'방치기간(일)',aliases:['방치기간일','방치기간','보관기간일']}
+];
+let surveyWorkbook=null,surveyWorkbookName='',surveyPhotos=[],surveyPlan=null,surveyExcelLoading=null,surveyColumnMap={};
+function surveyNorm(value){return String(value??'').toLowerCase().replace(/[\s()[\]{}._\-·]/g,'').replace(/[㎞㎝㎡]/g,'')}
+function surveyText(value){
+ if(value==null)return '';
+ if(value instanceof Date)return value.toLocaleDateString('ko-KR');
+ if(typeof value==='object'){
+  if(value.text!=null)return String(value.text);
+  if(Array.isArray(value.richText))return value.richText.map(part=>part.text||'').join('');
+  if(value.result!=null)return surveyText(value.result);
+  if(value.hyperlink)return value.text||value.hyperlink;
+  return '';
+ }
+ return String(value).trim()
+}
+function surveyDateValue(value){
+ if(value instanceof Date&&!Number.isNaN(value.getTime()))return new Date(value.getFullYear(),value.getMonth(),value.getDate());
+ if(typeof value==='number'&&Number.isFinite(value)&&value>0){
+  const date=new Date(Date.UTC(1899,11,30)+value*86400000);
+  if(!Number.isNaN(date.getTime()))return new Date(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate())
+ }
+ const text=surveyText(value);
+ if(!text)return null;
+ const m=text.match(/(\d{4})\s*[./년-]\s*(\d{1,2})\s*[./월-]\s*(\d{1,2})/);
+ if(m){const d=new Date(+m[1],+m[2]-1,+m[3]);return d.getFullYear()===+m[1]&&d.getMonth()===+m[2]-1&&d.getDate()===+m[3]?d:null}
+ const parsed=new Date(text);
+ return Number.isNaN(parsed.getTime())?null:new Date(parsed.getFullYear(),parsed.getMonth(),parsed.getDate())
+}
+function surveyDateKey(date){return date?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:''}
+function surveyInputDate(){
+ const value=$('surveyDate').value;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return null;
+ const [y,m,d]=value.split('-').map(Number),date=new Date(y,m-1,d);
+ return date.getFullYear()===y&&date.getMonth()===m-1&&date.getDate()===d?date:null
+}
+function surveyClone(value){
+ if(value instanceof Date)return new Date(value.getTime());
+ if(Array.isArray(value))return value.map(surveyClone);
+ if(value&&typeof value==='object'){const out={};Object.keys(value).forEach(key=>out[key]=surveyClone(value[key]));return out}
+ return value
+}
+function surveyWorksheet(name){return surveyWorkbook&&surveyWorkbook.getWorksheet(name)}
+function surveySheetList(){return surveyWorkbook?surveyWorkbook.worksheets.map(ws=>ws.name):[]}
+function surveyCell(ws,row,col){return col?ws.getRow(row).getCell(col):null}
+function surveyFindHeaderRow(ws){
+ let bestRow=1,bestScore=-1;
+ for(let row=1;row<=Math.min(ws.rowCount,30);row++){
+  const values=[];ws.getRow(row).eachCell({includeEmpty:false},cell=>values.push(surveyNorm(surveyText(cell.value))));
+  const score=SURVEY_FIELDS.reduce((sum,field)=>sum+(values.some(v=>field.aliases.some(alias=>v===surveyNorm(alias)))?1:0),0);
+  if(score>bestScore){bestScore=score;bestRow=row}
+ }
+ return bestScore>=2?bestRow:1
+}
+function surveyColumnsAt(ws,headerRow){
+ const result={},headers=[];
+ ws.getRow(headerRow).eachCell({includeEmpty:false},(cell,col)=>headers.push({col,label:surveyText(cell.value)}));
+ SURVEY_FIELDS.forEach(field=>{
+  const matches=headers.filter(header=>field.aliases.some(alias=>surveyNorm(header.label)===surveyNorm(alias)));
+  if(matches.length)result[field.key]=matches[0].col
+ });
+ return{result,headers}
+}
+function surveyFillSheetSelector(selectId,current,preferred){
+ const select=$(selectId);select.innerHTML='';
+ select.add(new Option('시트를 선택하세요',''));
+ surveySheetList().forEach(name=>select.add(new Option(name,name)));
+ const names=surveySheetList();
+ const chosen=(current&&names.includes(current)?current:names.find(name=>preferred(name))||'');
+ select.value=chosen
+}
+function surveyFindSheetDefault(key){
+ const names=surveySheetList(),n=name=>surveyNorm(name);
+ if(key==='jaun')return names.find(name=>n(name).includes('자운'))||'';
+ if(key==='manda')return names.find(name=>n(name).includes('만대'))||names.find(name=>n(name).includes('양구'))||'';
+ return names.find(name=>n(name).includes('인제'))||''
+}
+function surveyInvalidatePreview(){
+ surveyPlan=null;$('surveyReviewCard').hidden=true;$('surveyExportCard').hidden=true;
+ $('surveyReviewConfirm').checked=false
+}
+function surveySetupWorkbook(){
+ if(!surveyWorkbook)return;
+ $('surveyWorkbookCard').hidden=false;
+ SURVEY_TARGETS.forEach(target=>surveyFillSheetSelector(target.select,$(target.select).value,name=>name===surveyFindSheetDefault(target.key)));
+ const target=surveyWorkbook.getWorksheet($('surveySheetJaun').value)||surveyWorkbook.worksheets[0];
+ const headerRow=surveyFindHeaderRow(target);
+ $('surveyHeaderRow').value=String(headerRow);
+ surveyRenderColumnMap()
+}
+function surveyRenderColumnMap(){
+ if(!surveyWorkbook)return;
+ const row=Math.max(1,parseInt($('surveyHeaderRow').value,10)||1);
+ const selected=$('surveySheetJaun').value||surveySheetList()[0],ws=surveyWorksheet(selected);
+ if(!ws)return;
+ const {result,headers}=surveyColumnsAt(ws,row);
+ const out=$('surveyColumnMap');
+ out.innerHTML=SURVEY_FIELDS.map(field=>{
+  const options=['<option value="">열 선택 안 함</option>',...headers.map(item=>`<option value="${item.col}">${esc(item.label||`열 ${item.col}`)} (${item.col})</option>`)].join('');
+  const col=surveyColumnMap[field.key]||result[field.key]||'';
+  return `<div><label for="survey-col-${field.key}">${esc(field.label)}${field.required?' *':''}</label><select id="survey-col-${field.key}" data-survey-field="${field.key}">${options}</select></div>`
+ }).join('');
+ SURVEY_FIELDS.forEach(field=>{const select=$('survey-col-'+field.key);select.value=String(surveyColumnMap[field.key]||result[field.key]||'');select.onchange=()=>{surveyColumnMap[field.key]=select.value?Number(select.value):0;surveyInvalidatePreview();surveyValidateSchema()};});
+ surveyColumnMap={};
+ SURVEY_FIELDS.forEach(field=>surveyColumnMap[field.key]=Number($('survey-col-'+field.key).value)||0);
+ surveyValidateSchema()
+}
+function surveyResolveTargetSheets(){
+ const result={};
+ for(const target of SURVEY_TARGETS){
+  const name=$(target.select).value;
+  if(!name||!surveyWorksheet(name))throw new Error(`${target.title} 시트를 지정해 주세요.`);
+  if(Object.values(result).some(value=>value===name))throw new Error('세 대상은 서로 다른 시트로 지정해야 합니다.');
+  result[target.key]=name
+ }
+ return result
+}
+function surveyValidateSchema(){
+ if(!surveyWorkbook)return false;
+ let message='';
+ try{
+  const sheets=surveyResolveTargetSheets(),headerRow=Math.max(1,parseInt($('surveyHeaderRow').value,10)||0);
+  if(!headerRow)throw new Error('헤더 행 번호를 입력해 주세요.');
+  const missing=SURVEY_FIELDS.filter(field=>field.required&&!surveyColumnMap[field.key]).map(field=>field.label);
+  if(missing.length)throw new Error('필수 열을 지정해 주세요: '+missing.join(', '));
+  const mismatches=[];
+  Object.entries(sheets).forEach(([key,name])=>{
+   const ws=surveyWorksheet(name),mapped=surveyColumnsAt(ws,headerRow);
+   SURVEY_FIELDS.filter(field=>surveyColumnMap[field.key]).forEach(field=>{
+    const expected=surveyColumnMap[field.key],expectedText=surveyText(surveyWorksheet(sheets.jaun).getRow(headerRow).getCell(expected).value);
+    if(!expectedText||!mapped.headers.some(h=>h.col===expected&&surveyNorm(h.label)===surveyNorm(expectedText)))mismatches.push(`${name}의 ${field.label} 열`)
+   })
+  });
+  if(mismatches.length)throw new Error('시트의 열 배치가 다릅니다. 자운지구와 같은 헤더/열 순서인지 확인하세요: '+mismatches.join(', '));
+  message=`시트 3개와 필수 열을 확인했습니다. ${headerRow}행을 헤더로 사용하며 다른 셀·열은 유지합니다.`
+ }catch(e){message=e.message||String(e)}
+ $('surveySchemaMsg').textContent=message;
+ return message.startsWith('시트 3개')
+}
+async function surveyEnsureExcelJS(){
+ if(window.ExcelJS)return window.ExcelJS;
+ if(surveyExcelLoading)return surveyExcelLoading;
+ surveyExcelLoading=new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+  script.onload=()=>window.ExcelJS?resolve(window.ExcelJS):reject(new Error('엑셀 처리 라이브러리를 불러오지 못했습니다.'));
+  script.onerror=()=>reject(new Error('엑셀 처리 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.'));
+  document.head.appendChild(script)
+ }).finally(()=>{surveyExcelLoading=null});
+ return surveyExcelLoading
+}
+function surveySetMessage(id,message,isError=false){
+ $(id).innerHTML=isError?'<span class="err">'+esc(message)+'</span>':esc(message)
+}
+async function surveyLoadWorkbook(file){
+ if(!file)return;
+ surveyInvalidatePreview();surveyWorkbook=null;surveyWorkbookName=file.name;surveyPhotos=[];
+ $('surveyWorkbookCard').hidden=true;$('surveyPhotosCard').hidden=true;$('surveyReviewCard').hidden=true;$('surveyExportCard').hidden=true;
+ surveySetMessage('surveyLoadMsg','엑셀 파일을 브라우저에서 읽는 중…');
+ try{
+  if(!/\.xlsx$/i.test(file.name))throw new Error('.xlsx 형식만 지원합니다. 원본 파일은 변경하지 않습니다.');
+  const ExcelJS=await surveyEnsureExcelJS(),book=new ExcelJS.Workbook();
+  await book.xlsx.load(await file.arrayBuffer());
+  if(!book.worksheets.length)throw new Error('엑셀에 시트가 없습니다.');
+  surveyWorkbook=book;surveyColumnMap={};surveySetupWorkbook();
+  $('surveyPhotosCard').hidden=false;
+  surveySetMessage('surveyLoadMsg',`원본 ${file.name}을 브라우저에 불러왔습니다. 시트와 열 배정을 확인하고 사진을 추가하세요. 파일 내용은 서버로 전송하지 않습니다.`);
+ }catch(e){surveyWorkbook=null;surveySetMessage('surveyLoadMsg',e.message||String(e),true)}
+}
+function surveyInferSheet(photo){
+ const text=surveyNorm(`${photo.jibun||''} ${photo.road||''}`);
+ if(text.includes('양구군')||text.includes('만대'))return'manda';
+ if(text.includes('인제군'))return'inje';
+ if(text.includes('자운'))return'jaun';
+ return''
+}
+function surveyRenderPhotos(){
+ const box=$('surveyPhotoRows');
+ if(!surveyPhotos.length){box.innerHTML='<div class="msg">이번 회차 사진을 선택하세요.</div>';return}
+ box.innerHTML=surveyPhotos.map((photo,index)=>{
+  const options=['<option value="">시트 배정 확인</option>',...SURVEY_TARGETS.map(target=>`<option value="${target.key}">${target.title}</option>`)].join('');
+  const address=photo.jibun||photo.road||photo.addressStatus||'주소 미조회';
+  const coords=photo.lat==null?'GPS 정보 없음':`${photo.lat.toFixed(6)}, ${photo.lon.toFixed(6)}`;
+  const details=[photo.jimok||photo.landStatus||'지목 미조회',photo.riverDistance==null?'하천 거리 미계산':`${photo.riverDistance} m`].join(' · ');
+  return `<div class="survey-photo-row"><div><strong>${esc(photo.name)}</strong><br><span class="msg">${esc(coords)} · ${esc(address)} · ${esc(details)}</span></div><select data-survey-photo="${index}" aria-label="${esc(photo.name)} 시트 배정">${options}</select><div class="msg">${esc(photo.addressStatus||photo.landStatus||'')}</div></div>`
+ }).join('');
+ box.querySelectorAll('select[data-survey-photo]').forEach(select=>{
+  const photo=surveyPhotos[Number(select.dataset.surveyPhoto)],suggestion=photo.sheetKey||surveyInferSheet(photo);
+  select.value=suggestion||'';
+  select.onchange=()=>{photo.sheetKey=select.value;surveyInvalidatePreview()}
+ })
+}
+async function surveyReadPhotos(files){
+ if(!files.length)return;
+ if(!surveyWorkbook){surveySetMessage('surveyPhotoMsg','먼저 원본 조사 엑셀을 선택해 주세요.',true);return}
+ $('surveyPhotosCard').hidden=false;surveyPhotos=[];surveyInvalidatePreview();
+ surveySetMessage('surveyPhotoMsg',`${files.length}장 사진의 GPS 정보를 브라우저에서 읽는 중…`);
+ for(const file of files){
+  const photo={name:file.name,lat:null,lon:null,date:'',jibun:'',road:'',jimok:'',riverDistance:null,sheetKey:'',addressStatus:'',landStatus:''};
+  try{
+   const gps=await exifr.gps(file);
+   if(gps&&Number.isFinite(gps.latitude)&&Number.isFinite(gps.longitude)){photo.lat=gps.latitude;photo.lon=gps.longitude}
+   else photo.addressStatus='사진에 GPS 정보 없음'
+   const meta=await exifr.parse(file,['DateTimeOriginal']).catch(()=>null);
+   if(meta&&meta.DateTimeOriginal)photo.date=String(meta.DateTimeOriginal)
+  }catch(e){photo.addressStatus='GPS 읽기 실패'}
+  surveyPhotos.push(photo)
+ }
+ surveyRenderPhotos();
+ surveySetMessage('surveyPhotoMsg',`${surveyPhotos.length}장 준비됨. 사진별 시트 배정과 필요한 조회 결과를 확인하세요.`)
+}
+async function surveyLookupPhotos(){
+ if(!surveyPhotos.length)return;
+ const provider=$('prov').value,key=$('key').value.trim();
+ if(provider!=='osm'&&!key){surveySetMessage('surveyPhotoMsg','주소·지목 조회를 하려면 주소 설정에서 API 키를 입력하세요. 사진과 엑셀은 서버로 전송되지 않습니다.',true);return}
+ const needsLand=provider==='vworld'&&!!key;
+ for(let i=0;i<surveyPhotos.length;i++){
+  const photo=surveyPhotos[i];
+  if(photo.lat==null)continue;
+  $('surveyPhotoMsg').textContent=`좌표 기반 주소·지목 조회 중… ${i+1}/${surveyPhotos.length}`;
+  try{
+   const result=await geo(photo,provider,key);
+   photo.jibun=result.jibun||'';photo.road=result.road||'';
+   photo.addressStatus=result.err||(!photo.jibun&&!photo.road?'주소 결과 없음':'');
+  }catch(e){photo.addressStatus='주소 조회 실패: '+(e.message||e)}
+  if(needsLand){
+   try{const land=await lookupLandCategory(photo,key);photo.jimok=land.name;photo.landStatus=''}
+   catch(e){photo.landStatus='지목 확인 필요: '+(e.message||e)}
+  }else photo.landStatus='지목 확인 필요: 브이월드 키와 권한 필요';
+  photo.sheetKey=photo.sheetKey||surveyInferSheet(photo);
+  surveyRenderPhotos()
+ }
+ surveySetMessage('surveyPhotoMsg','조회가 끝났습니다. 주소·지목이 비어 있거나 시트가 미배정인 사진은 직접 확인해 주세요.')
+}
+function surveyRowHasValues(row){
+ let found=false;row.eachCell({includeEmpty:false},cell=>{if(cell.value!=null&&surveyText(cell.value)!=='')found=true});return found
+}
+function surveyRowFormulaCount(row){
+ let count=0;row.eachCell({includeEmpty:false},cell=>{if(cell.value&&typeof cell.value==='object'&&(cell.value.formula||cell.value.sharedFormula))count++});return count
+}
+function surveyProcessed(status){const text=surveyNorm(status);return !/(미처리|예정)/.test(text)&&(text.includes('처리')||text.includes('살포'))}
+function surveyLatestActive(ws,headerRow,columns){
+ const entries=[];
+ for(let rowNo=headerRow+1;rowNo<=ws.rowCount;rowNo++){
+  const row=ws.getRow(rowNo);if(!surveyRowHasValues(row))continue;
+  const date=surveyDateValue(surveyCell(ws,rowNo,columns.surveyDate)?.value);
+  if(date)entries.push({rowNo,date,dateKey:surveyDateKey(date),status:surveyText(surveyCell(ws,rowNo,columns.status)?.value)})
+ }
+ if(!entries.length)return{latestDate:null,rows:[]};
+ entries.sort((a,b)=>a.date-b.date);
+ const latest=entries[entries.length-1].dateKey;
+ return{latestDate:entries[entries.length-1].date,rows:entries.filter(item=>item.dateKey===latest&&!surveyProcessed(item.status))}
+}
+function surveyMappedColumns(ws,headerRow){
+ const {result}=surveyColumnsAt(ws,headerRow),columns={...result};
+ SURVEY_FIELDS.forEach(field=>{if(surveyColumnMap[field.key])columns[field.key]=surveyColumnMap[field.key]});
+ return columns
+}
+function surveyCellDisplay(ws,rowNo,col){
+ return surveyText(surveyCell(ws,rowNo,col)?.value)
+}
+function surveyRenderCarryList(records){
+ if(!records.length){$('surveyCarryList').innerHTML='<div class="msg">최신 조사일의 미처리 행이 없습니다. 신규 사진 행만 추가할 수 있습니다.</div>';return}
+ $('surveyCarryList').innerHTML=records.map(record=>{
+  const ws=surveyWorksheet(record.sheet),c=record.columns,row=record.rowNo;
+  const parcel=surveyCellDisplay(ws,row,c.parcel)||'지번 미입력';
+  const first=surveyCellDisplay(ws,row,c.firstDate)||'최초조사일 미입력';
+  const volume=surveyCellDisplay(ws,row,c.volume)||'체적 미입력';
+  return `<label class="survey-review-item"><input type="checkbox" data-survey-treat="${esc(record.sheetKey)}:${row}"><span><strong>${esc(record.title)} · 행 ${row}</strong><br>${esc(parcel)} · 최초조사 ${esc(first)} · 체적 ${esc(volume)}</span></label>`
+ }).join('')
+}
+function surveyRoundedDistance(lat,lon){
+ if(!riverSegments.length)return null;
+ const point=proj4('EPSG:4326','EPSG:5179').forward([lon,lat]);let best=Infinity;
+ for(const segment of riverSegments){
+  const ax=segment.a[0],ay=segment.a[1],dx=segment.b[0]-ax,dy=segment.b[1]-ay;
+  if(point[0]<Math.min(ax,segment.b[0])-Math.sqrt(best)||point[0]>Math.max(ax,segment.b[0])+Math.sqrt(best)||
+     point[1]<Math.min(ay,segment.b[1])-Math.sqrt(best)||point[1]>Math.max(ay,segment.b[1])+Math.sqrt(best))continue;
+  const len=dx*dx+dy*dy,t=len?Math.max(0,Math.min(1,((point[0]-ax)*dx+(point[1]-ay)*dy)/len)):0;
+  const x=ax+t*dx,y=ay+t*dy,d=(point[0]-x)*(point[0]-x)+(point[1]-y)*(point[1]-y);
+  if(d<best)best=d
+ }
+ return Number.isFinite(best)?Math.max(5,Math.round(Math.sqrt(best)/5)*5):null
+}
+async function surveyPrepare(){
+ surveyInvalidatePreview();
+ try{
+  if(!surveyWorkbook)throw new Error('원본 조사 엑셀을 먼저 선택해 주세요.');
+  if(!surveyValidateSchema())throw new Error($('surveySchemaMsg').textContent||'시트와 열 배정을 확인해 주세요.');
+  const date=surveyInputDate();if(!date)throw new Error('이번 조사일을 올바르게 입력해 주세요.');
+  if(surveyPhotos.some(photo=>!photo.sheetKey))throw new Error('시트가 배정되지 않은 사진이 있습니다. 주소를 확인하거나 사진별 시트를 직접 선택하세요.');
+  let headerRow=Math.max(1,parseInt($('surveyHeaderRow').value,10)||1);
+  const sheetNames=surveyResolveTargetSheets(),carry=[],warnings=[];
+  if(surveyPhotos.length&&!riverSegments.length){
+   const loaded=await loadCachedRiverFiles();
+   if(loaded.errors.length)warnings.push('일부 저장 하천 자료를 읽지 못했습니다: '+loaded.errors.join(' / '))
+  }
+  for(const target of SURVEY_TARGETS){
+   const sheet=sheetNames[target.key],ws=surveyWorksheet(sheet),columns=surveyMappedColumns(ws,headerRow),latest=surveyLatestActive(ws,headerRow,columns);
+   if(latest.rows.length)latest.rows.forEach(item=>{
+    if(surveyRowFormulaCount(ws.getRow(item.rowNo)))warnings.push(`${target.title} 행 ${item.rowNo}: 수식 셀은 원본 수식 그대로 복사되므로 결과 셀을 확인하세요.`);
+    carry.push({sheet,sheetKey:target.key,title:target.title,rowNo:item.rowNo,date:item.date,columns})
+   });
+   else warnings.push(`${target.title}: 최신 조사일의 미처리 행을 찾지 못했습니다.`)
+  }
+  if(!surveyPhotos.length&&!carry.length)throw new Error('사진도 최신 조사일의 미처리 행도 없어 새 회차를 만들 수 없습니다.');
+  surveyPhotos.forEach(photo=>{
+   photo.riverDistance=photo.lat==null?null:surveyRoundedDistance(photo.lat,photo.lon);
+   if(!photo.riverDistance)warnings.push(`${photo.name}: 하천 거리 확인 필요${riverSegments.length?' (하천 자료에서 가까운 경계를 찾지 못함)':' (저장된 하천 자료 없음)'}`)
+   if(photo.lat==null)warnings.push(`${photo.name}: GPS 확인 필요`);
+   if(!photo.jibun&&!photo.road)warnings.push(`${photo.name}: 지번/주소 확인 필요`);
+   if(!photo.jimok)warnings.push(`${photo.name}: 지목 확인 필요`);
+  });
+  surveyPlan={date,sheetNames,headerRow,carry,warnings};
+  surveyRenderCarryList(carry);
+  const newBySheet=SURVEY_TARGETS.map(target=>`${target.title} 신규 사진 ${surveyPhotos.filter(photo=>photo.sheetKey===target.key).length}장`).join(' · ');
+  $('surveyReviewMsg').textContent=`이번 조사일 ${surveyDateKey(date)} · 최신 미처리 행 ${carry.length}개 · ${newBySheet}`+(warnings.length?` · 확인 필요 ${warnings.length}건`:'');
+  $('surveyReviewCard').hidden=false;$('surveyExportCard').hidden=false;
+  $('surveySummary').textContent=`미리보기가 준비됐습니다. 미확인 항목과 처리 대상 선택을 확인한 뒤 확인란을 체크하면 엑셀 다운로드가 활성화됩니다. 기존 원본 이력은 변경하지 않습니다.${warnings.length?' '+warnings.slice(0,8).join(' / ')+(warnings.length>8?` 외 ${warnings.length-8}건`:''):''}`;
+  $('surveyExport').disabled=true;
+ }catch(e){surveySetMessage('surveyPhotoMsg',e.message||String(e),true)}
+}
+function surveyDateForCell(sourceCell,date){
+ const sourceValue=sourceCell&&sourceCell.value;
+ const original=sourceValue&&typeof sourceValue==='object'&&sourceValue.result!=null?sourceValue.result:sourceValue;
+ if(sourceValue==null||original instanceof Date||typeof original==='number'||/[dmy]/i.test(String(sourceCell&&sourceCell.numFmt||'')))
+  return new Date(date.getFullYear(),date.getMonth(),date.getDate());
+ return surveyDateKey(date)
+}
+function surveyMaxPopulatedRow(ws){
+ let max=0;for(let i=1;i<=ws.rowCount;i++)if(surveyRowHasValues(ws.getRow(i)))max=i;return max
+}
+function surveyCopyRow(ws,sourceNo,targetNo,clearValues=false){
+ const source=ws.getRow(sourceNo),target=ws.getRow(targetNo),maxCol=Math.max(ws.columnCount,source.cellCount);
+ for(let col=1;col<=maxCol;col++){
+  const from=source.getCell(col),to=target.getCell(col);
+  to.value=clearValues?null:surveyClone(from.value);
+  to.style=surveyClone(from.style);
+  if(from.numFmt)to.numFmt=from.numFmt;
+ }
+ target.height=source.height;target.hidden=source.hidden;target.outlineLevel=source.outlineLevel;
+ return target
+}
+function surveyYellowFill(fill){
+ if(!fill||fill.type!=='pattern'||fill.pattern!=='solid')return false;
+ const color=fill.fgColor||{};
+ return /^(FFFFFF00|FFFF00|FFFFEB3B|FFFFF2CC|FFFFC000)$/i.test(String(color.argb||color.rgb||''))||color.indexed===6
+}
+function surveyTreatmentTemplate(ws,columns,headerRow){
+ let fallback=null;
+ for(let rowNo=headerRow+1;rowNo<=ws.rowCount;rowNo++){
+  const row=ws.getRow(rowNo);let yellow=false;
+  row.eachCell({includeEmpty:true},cell=>{if(surveyYellowFill(cell.fill))yellow=true});
+  if(!yellow)continue;
+  if(!fallback)fallback=rowNo;
+  if(surveyProcessed(surveyCell(ws,rowNo,columns.status)?.value))return rowNo
+ }
+ return fallback
+}
+function surveyApplyTreatedStyle(ws,rowNo,templateNo){
+ const row=ws.getRow(rowNo),template=templateNo?ws.getRow(templateNo):null;
+ const maxCol=Math.max(ws.columnCount,row.cellCount,template?template.cellCount:0);
+ for(let col=1;col<=maxCol;col++){
+  const cell=row.getCell(col),fill=template&&template.getCell(col).fill;
+  cell.fill=fill&&surveyYellowFill(fill)?surveyClone(fill):{type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF00'}}
+ }
+}
+function surveySetCell(ws,rowNo,col,value){
+ if(!col)return;
+ ws.getRow(rowNo).getCell(col).value=value
+}
+function surveyDaysBetween(start,end){
+ if(!start||!end)return null;
+ const a=Date.UTC(start.getFullYear(),start.getMonth(),start.getDate()),b=Date.UTC(end.getFullYear(),end.getMonth(),end.getDate());
+ return Math.floor((b-a)/86400000)
+}
+function surveyAppendRow(ws,sourceNo,targetNo,clearValues=false){
+ return sourceNo?surveyCopyRow(ws,sourceNo,targetNo,clearValues):ws.getRow(targetNo)
+}
+async function surveyExportWorkbook(){
+ if(!surveyPlan||!$('surveyReviewConfirm').checked)return;
+ const {date,sheetNames,headerRow,carry}=surveyPlan,treated=new Set();
+ document.querySelectorAll('[data-survey-treat]:checked').forEach(input=>treated.add(input.dataset.surveyTreat));
+ try{
+  if(treated.size&&['firstDate','volume','sprayDate','days'].some(key=>!surveyColumnMap[key])){
+   throw new Error('처리 대상이 선택되었습니다. 방치기간을 정확히 계산하려면 최초조사일·체적·살포일·방치기간 열을 모두 지정하세요.')
+  }
+  SURVEY_TARGETS.forEach(target=>{
+   const ws=surveyWorksheet(sheetNames[target.key]),columns=surveyMappedColumns(ws,headerRow);
+   const sheetCarry=carry.filter(item=>item.sheetKey===target.key),templateNo=sheetCarry.length?sheetCarry[0].rowNo:surveyMaxPopulatedRow(ws);
+   const yellowTemplate=surveyTreatmentTemplate(ws,columns,headerRow);
+   let next=surveyMaxPopulatedRow(ws)+1;
+   sheetCarry.forEach(item=>{
+    const isTreated=treated.has(`${target.key}:${item.rowNo}`),rowNo=next++;
+    surveyAppendRow(ws,item.rowNo,rowNo);
+    const oldDate=surveyCell(ws,item.rowNo,columns.surveyDate);
+    surveySetCell(ws,rowNo,columns.surveyDate,surveyDateForCell(oldDate,date));
+    surveySetCell(ws,rowNo,columns.status,isTreated?'처리':'방치');
+    if(isTreated){
+     surveySetCell(ws,rowNo,columns.volume,null);
+     surveySetCell(ws,rowNo,columns.sprayDate,new Date(date.getFullYear(),date.getMonth(),date.getDate()));
+     const firstDate=surveyDateValue(surveyCell(ws,item.rowNo,columns.firstDate)?.value);
+     if(firstDate&&surveyDaysBetween(firstDate,date)<0)throw new Error(`${item.title} 행 ${item.rowNo}: 최초조사일이 이번 조사일보다 늦어 방치기간을 계산할 수 없습니다.`);
+     surveySetCell(ws,rowNo,columns.days,firstDate?surveyDaysBetween(firstDate,date):'확인 필요: 최초조사일');
+     surveyApplyTreatedStyle(ws,rowNo,yellowTemplate)
+    }
+   });
+   surveyPhotos.filter(photo=>photo.sheetKey===target.key).forEach(photo=>{
+    const rowNo=next++,row=surveyAppendRow(ws,templateNo,rowNo,true);
+    surveySetCell(ws,rowNo,columns.surveyDate,surveyDateForCell(surveyCell(ws,templateNo,columns.surveyDate),date));
+    surveySetCell(ws,rowNo,columns.status,'신규');
+    surveySetCell(ws,rowNo,columns.firstDate,surveyDateForCell(surveyCell(ws,templateNo,columns.firstDate),date));
+    surveySetCell(ws,rowNo,columns.parcel,photo.jibun||'확인 필요: 지번 조회');
+    surveySetCell(ws,rowNo,columns.land,photo.jimok||'확인 필요: 지목 조회');
+    surveySetCell(ws,rowNo,columns.latitude,photo.lat==null?'확인 필요: GPS':photo.lat);
+    surveySetCell(ws,rowNo,columns.longitude,photo.lon==null?'확인 필요: GPS':photo.lon);
+    surveySetCell(ws,rowNo,columns.riverDistance,photo.riverDistance==null?'확인 필요: 하천 거리':photo.riverDistance);
+    if(columns.volume)surveySetCell(ws,rowNo,columns.volume,null);
+    if(row)row.commit?.()
+   })
+  });
+  const buffer=await surveyWorkbook.xlsx.writeBuffer();
+  const safeName=surveyWorkbookName.replace(/\.xlsx$/i,'')+'_조사추가.xlsx';
+  saveBlob(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),safeName);
+  surveySetMessage('surveySummary',`새 파일 ${safeName}을 만들었습니다. 원본 파일과 기존 이력은 변경하지 않았으며, 사진·엑셀 데이터는 업로드하지 않았습니다.`)
+ }catch(e){surveySetMessage('surveySummary','엑셀을 만들지 못했습니다: '+(e.message||e),true)}
+}
+$('surveyWorkbookFile').onchange=e=>surveyLoadWorkbook(e.target.files[0]);
+$('surveyPhotoFiles').onchange=e=>surveyReadPhotos([...e.target.files]);
+SURVEY_TARGETS.forEach(target=>$(target.select).onchange=()=>{surveyInvalidatePreview();surveyRenderColumnMap()});
+$('surveyHeaderRow').onchange=()=>{surveyInvalidatePreview();surveyRenderColumnMap()};
+$('surveyLookup').onclick=surveyLookupPhotos;
+$('surveyPrepare').onclick=surveyPrepare;
+$('surveyExport').onclick=surveyExportWorkbook;
+$('surveyReviewConfirm').onchange=()=>{$('surveyExport').disabled=!surveyPlan||!$('surveyReviewConfirm').checked};
+$('surveyDate').onchange=surveyInvalidatePreview;
+function surveyLocalToday(){
+ const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+}
+$('surveyDate').value=surveyLocalToday();
 </script>
 </body>
 </html>
